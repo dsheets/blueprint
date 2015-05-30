@@ -1,0 +1,11 @@
+<html>
+  <t:let name="closed">bound early</t:let>
+  <t:let name="block">
+    The variable 'closed' is <t:insert name="closed"/>.
+  </t:let>
+  <body>
+    <t:let name="closed">bound late</t:let>
+    <p><t:insert name="block"/></p>
+  </body>
+  <t:let name="closed">insane</t:let>
+</html>

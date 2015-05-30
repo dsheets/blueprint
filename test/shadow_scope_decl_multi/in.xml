@@ -1,0 +1,12 @@
+<html>
+  <t:let name="a">Apple</t:let>
+  <t:let name="b">Banana</t:let>
+  <head>
+    <t:let name="a">Antichrist</t:let>
+    <t:let name="b">Beelzebub</t:let>
+  </head>
+  <body>
+    <p>A is for <t:insert name="a"/></p>
+    <p>B is for <t:insert name="b"/></p>
+  </body>
+</html>

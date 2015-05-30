@@ -1,0 +1,10 @@
+<html>
+  <t:let name="x">X:<t:insert name="y"/></t:let>
+  <t:let name="y">Y:<t:insert name="z"/></t:let>
+  <t:let name="z">Z</t:let>
+  <body>
+    <p><t:insert name="x"/></p>
+    <t:let name="z">z</t:let>
+    <p><t:insert name="x"/></p>
+  </body>
+</html>

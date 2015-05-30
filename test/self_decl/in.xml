@@ -1,0 +1,6 @@
+<html>
+  <t:let name="foo">Hello, foo!</t:let>
+  <body>
+    <t:insert name="foo"/>
+  </body>
+</html>

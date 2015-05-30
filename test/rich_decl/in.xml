@@ -1,0 +1,9 @@
+<html>
+  <body>
+    <t:let name="foo">
+      <strong><em>FOO</em></strong>
+      <small>(and other metasyntactic variables)</small>
+    </t:let>
+    <p><t:insert name="foo"/></p>
+  </body>
+</html>

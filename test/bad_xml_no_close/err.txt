@@ -1,0 +1,2 @@
+blue: in.xml: XML error at line 2 column 1:
+unexpected end of input

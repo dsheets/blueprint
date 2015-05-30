@@ -1,0 +1,8 @@
+<t:seq>
+  <t:let name="author">dsheets</t:let>
+  <html>
+    <body>
+      Hello, World!
+    </body>
+  </html>
+</t:seq>

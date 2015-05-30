@@ -1,0 +1,2 @@
+blue: in.xml: template error:
+Tag 'let' is missing attribute 'name'

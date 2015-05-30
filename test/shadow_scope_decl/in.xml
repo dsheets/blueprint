@@ -1,0 +1,10 @@
+<html>
+  <t:let name="umbra">Sol</t:let>
+  <head>
+    <t:let name="umbra">Luna</t:let>
+    <title>All about <t:insert name="umbra"/></title>
+  </head>
+  <body>
+    After a solar eclipse, <t:insert name="umbra"/> becomes visible again.
+  </body>
+</html>

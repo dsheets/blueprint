@@ -1,0 +1,7 @@
+<html>
+  <t:let name="umbra">Sol</t:let>
+  <t:let name="umbra">Luna</t:let>
+  <body>
+    In a solar eclipse, <t:insert name="umbra"/> is the obstruction.
+  </body>
+</html>

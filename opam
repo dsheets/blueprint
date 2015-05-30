@@ -1,0 +1,25 @@
+opam-version: "1.2"
+maintainer:   "sheets@alum.mit.edu"
+authors:    [ "David Sheets" ]
+license:      "ISC"
+homepage:     "https://github.com/dsheets/blueprint"
+bug-reports:  "https://github.com/dsheets/blueprint/issues"
+dev-repo:     "https://github.com/dsheets/blueprint.git"
+
+build: [
+  [make]
+]
+build-test: [
+  [make "test"]
+]
+
+depends: [
+  "ocamlfind" {build}
+  "xmlm"
+  "alcotest" {test}
+]
+depopts: [
+  "cmdliner"
+  "base-unix"
+]
+available: [ ocaml-version >= "4.00.0" ]

@@ -1,0 +1,8 @@
+<html>
+  <head>
+    <t:let name="head">head</t:let>
+  </head>
+  <body>
+    <t:insert name="head"/>
+  </body>
+</html>

@@ -1,0 +1,9 @@
+PKG cmdliner
+PKG xmlm
+
+S lib
+S unix
+S cli
+S .
+B _build
+B _build/*

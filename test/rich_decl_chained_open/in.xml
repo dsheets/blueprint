@@ -1,0 +1,9 @@
+<html>
+  <t:let name="block">
+    The variable 'open' is <t:insert name="open"/>.
+  </t:let>
+  <body>
+    <t:let name="open">bound</t:let>
+    <p><t:insert name="block"/></p>
+  </body>
+</html>
