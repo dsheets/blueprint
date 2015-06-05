@@ -1,7 +1,7 @@
 # blueprint
 
 **blueprint** is an XML (or polyglot HTML) template system. It's a
-  command and a MirageOS-compatible library.
+  command and a MirageOS-compatible OCaml library.
 
 To use **blueprint** from the command line, just
 

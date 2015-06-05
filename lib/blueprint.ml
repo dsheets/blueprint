@@ -94,6 +94,15 @@ let bindings { bindings } = bindings
 let declare name rope bindings =
   Map (HoleMap.singleton name rope, Some bindings)
 
+(* TODO: this is horrible *)
+let rec append a b = match a with
+  | Generator (f,None) -> Generator (f,Some b)
+  | Generator (f,Some bs) -> Generator (f,Some (append bs b))
+  | Map (m,None) -> Map (m,Some b)
+  | Map (m,Some bs) -> Map (m,Some (append bs b))
+  | Table (t,None) -> Table (t,Some b)
+  | Table (t,Some bs) -> Table (t, Some (append bs b))
+
 let get_attr tag attrs attr =
   try List.assoc ("",attr) attrs
   with Not_found -> raise (Error (`Missing_attribute (tag, attr)))

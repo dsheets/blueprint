@@ -104,6 +104,8 @@ Alcotest.run "blue" [
   ];
   "Composition", success_tests [
     "top_seq_binder";
+    "compose2";
+    "compose3";
   ];
   "Error", error_tests [
     "bad_xml_no_close";
@@ -114,6 +116,7 @@ Alcotest.run "blue" [
     "bad_let_name";
     "top_seq_multi";
     "decl_hole_open";
+    "bad_compose_scope";
   ];
   "Trouble", trouble_tests [
     "enoent";

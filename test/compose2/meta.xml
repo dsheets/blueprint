@@ -1,0 +1,9 @@
+<html>
+  <body>
+    <table>
+      <tr><td>Author</td><td><t:insert name="author"/></td></tr>
+      <tr><td>Title</td><td><t:insert name="title"/></td></tr>
+      <tr><td>Time</td><td><t:insert name="time"/></td></tr>
+    </table>
+  </body>
+</html>

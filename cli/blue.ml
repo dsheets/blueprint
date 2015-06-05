@@ -79,8 +79,7 @@ let rec compose prev_bindings = function
     in begin
       try
         (* we get our xml_out back, ignore it *)
-        (* TODO: prev_bindings *)
-        ignore Blueprint.(bind ~sink xml_out (bindings b) (template b))
+        ignore Blueprint.(bind ~sink xml_out prev_bindings (template b))
       with
       | Blueprint.Error err -> fatal_blueprint_error file err
     end;
@@ -89,8 +88,7 @@ let rec compose prev_bindings = function
   | file::files ->
     (* template is ignored in all but the last file *)
     let bindings = Blueprint.bindings (read_blueprint file) in
-    (* TODO: prev_bindings *)
-    compose bindings files
+    compose (Blueprint.append bindings prev_bindings) files
 
 let compose_cmd =
   let doc = "templates to compose" in

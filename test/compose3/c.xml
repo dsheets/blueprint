@@ -1,0 +1,6 @@
+<html>
+  <body>
+    <p>a is <t:insert name="a"/></p>
+    <p>b is <t:insert name="b"/></p>
+  </body>
+</html>

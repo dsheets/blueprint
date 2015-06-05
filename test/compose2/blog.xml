@@ -1,0 +1,11 @@
+<t:seq>
+  <t:let name="title">Hello, World!</t:let>
+  <t:let name="author">David Sheets</t:let>
+  <t:let name="time">2015-06-05</t:let>
+  <html>
+    <body>
+      <h1><t:insert name="title"/></h1>
+      <p>First post!</p>
+    </body>
+  </html>
+</t:seq>

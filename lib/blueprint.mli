@@ -53,6 +53,8 @@ val template : t -> template
 
 val bindings : t -> bindings
 
+val append : bindings -> bindings -> bindings
+
 val of_stream :
   prov:prov -> source:('acc -> 'acc * Xmlm.signal option) -> 'acc -> 'acc * t
 
