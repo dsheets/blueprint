@@ -135,6 +135,7 @@ Alcotest.run "blue" [
     "top_seq_binder";
     "compose2";
     "compose3";
+    "compose_stdin";
   ];
   "Default", success_tests [
     "empty_let";

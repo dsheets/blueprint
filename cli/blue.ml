@@ -36,7 +36,16 @@ let fatal_blueprint_error file err =
 
 let read_blueprint file =
   try
-    Unix.handle_unix_error (Blueprint_unix.of_file ~ns) file
+    match file with
+    | "-" ->
+      let open Blueprint in
+      let prov = File file in
+      let xml_input = Xmlm.make_input ~ns (`Channel stdin) in
+      let source = xml_source in
+      let _, rope = of_stream ~prov ~source xml_input in
+      rope
+    | file ->
+      Unix.handle_unix_error (Blueprint_unix.of_file ~ns) file
   with
   | Blueprint.Error err -> fatal_blueprint_error file err
   | Xmlm.Error ((line,col),err) ->
