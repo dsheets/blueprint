@@ -63,17 +63,25 @@ let holes rope =
   List.rev (aux [] rope)
 
 (* TODO: should also optimize? *)
-let patch f =
-  let rec aux = function
+let patch f rope =
+  let rec aux tbl = function
     | Literal (_,_) as r -> r
-    | Wrap (prov,l,v,r) -> Wrap (prov,l,aux v,r)
+    | Wrap (prov,l,v,r) -> Wrap (prov,l,aux tbl v,r)
     | Sequence (fropes,rropes) ->
-      Sequence (List.map aux fropes, List.map aux rropes)
+      Sequence (List.map (aux tbl) fropes, List.map (aux tbl) rropes)
     | Hole (prov, hole) as h -> match f prov hole with
       | None -> h
-      | Some t -> aux t
+      | Some t ->
+        if Hashtbl.mem tbl t
+        then h
+        else
+          let tbl = Hashtbl.copy tbl in
+          Hashtbl.replace tbl t ();
+          aux tbl t
   in
-  fun rope -> aux rope
+  let tbl = Hashtbl.create 8 in
+  Hashtbl.replace tbl rope ();
+  aux tbl rope
 
 let rec to_stream ~patch ~sink =
   let rec aux acc = function

@@ -1,0 +1,11 @@
+<html>
+  <t:let name="y">
+    <t:insert name="x"/>
+    <t:insert name="x"/>
+    <t:insert name="x"/>
+  </t:let>
+  <t:let name="x">X</t:let>
+  <body>
+    <pre><t:insert name="y"/></pre>
+  </body>
+</html>

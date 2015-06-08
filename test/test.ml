@@ -53,7 +53,7 @@ let in_dir dir f =
 let run_test ~expected_exit ~channel_fn ~dir ~result =
   let stderr = Unix.stderr in
   let stdin, stdout = Unix.pipe () in
-  let env = [|"BLUE=../../blue"|] in
+  let env = [|"OCAMLRUNPARAM=b";"BLUE=../../blue"|] in
   let test_pid = in_dir dir (fun () ->
     channel_fn (run "test.sh" [||] ~env ()) stdout
   ) in
@@ -101,6 +101,7 @@ Alcotest.run "blue" [
     "decl_local_let";
     "decl_double_open";
     "decl_hole_closed";
+    "decl_dup";
   ];
   "Composition", success_tests [
     "top_seq_binder";
@@ -116,6 +117,9 @@ Alcotest.run "blue" [
     "bad_let_name";
     "top_seq_multi";
     "decl_hole_open";
+    "decl_rec";
+    "decl_mutual_rec";
+    "decl_intro_rec";
     "bad_compose_scope";
   ];
   "Trouble", trouble_tests [

@@ -1,0 +1,12 @@
+<html>
+  <t:let name="a">
+    <t:insert name="b"/>
+  </t:let>
+  <t:let name="b">
+    <t:insert name="c"/>
+  </t:let>
+  <t:let name="c">
+    <t:insert name="a"/>
+  </t:let>
+  <t:insert name="c"/>
+</html>

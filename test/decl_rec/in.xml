@@ -1,0 +1,6 @@
+<html>
+  <t:let name="omega">
+    <t:insert name="omega"/>
+  </t:let>
+  <t:insert name="omega"/>
+</html>
