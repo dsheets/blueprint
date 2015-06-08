@@ -114,7 +114,7 @@ let rec compose prev_bindings incomplete = function
     compose (Blueprint.append bindings prev_bindings) incomplete files
 
 let compose_cmd =
-  let doc = "templates to compose" in
+  let doc = "templates to compose, use '-' to read from stdin" in
   let docv = "TEMPLATES" in
   let templates = Arg.(value (pos_all string [] & info ~docv ~doc [])) in
   let doc = "allow incomplete output" in
