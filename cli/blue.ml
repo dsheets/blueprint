@@ -24,6 +24,9 @@ let exec_name = Filename.basename Sys.argv.(0)
 let ns_bind_default = function "t" -> Some Blueprint.xmlns | _ -> None
 let ns = ns_bind_default
 
+let ns_map_default ns = if ns = Blueprint.xmlns then Some "t" else None
+let ns_prefix = ns_map_default
+
 let empty_bindings = Blueprint.(Table (HoleTable.create 1, None))
 
 let fatal_blueprint_error file err =
@@ -52,12 +55,14 @@ let is_ws s =
   in
   loop 0
 
-let rec compose prev_bindings = function
+let rec compose prev_bindings incomplete = function
   | [] -> `Help (`Pager, None)
   | [file] ->
     let buffer = Buffer.create 1024 in
     let b = read_blueprint file in
-    let xml_out = Xmlm.make_output ~decl:false ~nl:true (`Buffer buffer) in
+    let xml_out =
+      Xmlm.make_output ~decl:false ~nl:true ~ns_prefix (`Buffer buffer)
+    in
     let depth = ref 0 in (* TODO: this isn't very nice... *)
     let after_root = ref false in
     let sink _prov out s = List.iter (function
@@ -66,6 +71,13 @@ let rec compose prev_bindings = function
         if !after_root
         then fatal_blueprint_error file `Data_after_root;
         Xmlm.output out signal
+      | (`El_start ((ns,tag),attrs))
+        when not incomplete && ns = Blueprint.xmlns ->
+        begin try let name = List.assoc ("","name") attrs in
+            fatal_blueprint_error file (`Empty_hole name)
+          with Not_found ->
+            fatal_blueprint_error file (`Missing_attribute (tag, "name"))
+        end
       | (`El_start _) as signal ->
         if !after_root
         then fatal_blueprint_error file `Element_after_root;
@@ -79,7 +91,9 @@ let rec compose prev_bindings = function
     in begin
       try
         (* we get our xml_out back, ignore it *)
-        ignore Blueprint.(bind ~sink xml_out prev_bindings (template b))
+        ignore Blueprint.(
+          bind ~incomplete ~sink xml_out prev_bindings (template b)
+        )
       with
       | Blueprint.Error err -> fatal_blueprint_error file err
     end;
@@ -88,20 +102,22 @@ let rec compose prev_bindings = function
   | file::files ->
     (* template is ignored in all but the last file *)
     let bindings = Blueprint.bindings (read_blueprint file) in
-    compose (Blueprint.append bindings prev_bindings) files
+    compose (Blueprint.append bindings prev_bindings) incomplete files
 
 let compose_cmd =
   let doc = "templates to compose" in
+  let docv = "TEMPLATES" in
+  let templates = Arg.(value (pos_all string [] & info ~docv ~doc [])) in
+  let doc = "allow incomplete output" in
+  let incomplete = Arg.(value (flag & info ~doc ["i"])) in
   let man = [
     `S "DESCRIPTION";
     `P ("$(b, "^exec_name^") composes blueprint templates.");
   ]
   in
-  let docv = "TEMPLATES" in
-  let templates = Arg.(value (pos_all string [] & info ~docv ~doc [])) in
   Term.(
-    ret (pure (compose empty_bindings) $ templates),
-    info exec_name ~version ~doc ~man
+    ret (pure (compose empty_bindings) $ incomplete $ templates),
+    info exec_name ~version ~man
   )
 
 ;;

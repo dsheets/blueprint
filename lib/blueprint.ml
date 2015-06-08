@@ -29,11 +29,6 @@ type error = [
 
 exception Error of error
 
-(* TODO: What about lexical info? values are assumed to be static per source *)
-type prov =
-| Stream of string
-| File of string
-
 let xmlns = "https://opam.ocaml.org/packages/blueprint/xmlns/0/#"
 
 let error_message : error -> string = function
@@ -72,20 +67,47 @@ module HoleTable = Hashtbl.Make(struct
   let hash = Hashtbl.hash
 end)
 
+(* TODO: What about lexical info? values are assumed to be static per
+   source *)
+type prov =
+  | Stream of string
+  | File of string
+type prov' = prov
+
+type 'a valued =
+  | Default of 'a
+  | Typed of string * 'a
+
+module rec Template :
+  XmlRope.TEMPLATE with type hole = Rope.t valued Hole.t and type prov = prov =
+struct
+  type hole = Rope.t valued Hole.t
+  type prov = prov'
+
+  (* TODO: defaults *)
+  let signals_of_hole _prov = Hole.(function
+    | Named name -> [
+        `El_start ((xmlns,"insert"),[("","name"),name]); `El_end;
+      ]
+    | Valued (name, Default default) -> []
+    | Valued (name, Typed (typ, default)) -> []
+  )
+end
+and Rope : XmlRope.S
+  with type hole = Template.hole
+   and type prov = Template.prov
+  = XmlRope.Make(Template)
+
+(* TODO: This is a bit weird... *)
+type bindings =
+| Generator of (Template.hole -> Rope.t option) * bindings option
+| Map of Rope.t HoleMap.t * bindings option
+| Table of Rope.t HoleTable.t * bindings option
+
 type t = {
-  rope : template;
+  rope : Rope.t;
   bindings : bindings;
 }
-and template = (hole, prov) XmlRope.t
-and hole = valued Hole.t
-and valued =
-| Default of template
-| Typed of string * template
-(* TODO: This is a bit weird... *)
-and bindings =
-| Generator of (hole -> template option) * bindings option
-| Map of template HoleMap.t * bindings option
-| Table of template HoleTable.t * bindings option
 
 let template { rope } = rope
 let bindings { bindings } = bindings
@@ -176,7 +198,7 @@ let rtrim = function
 let of_stream ~prov ~source =
   let rec run stack seq ({ rope; bindings } as b) = function
     | acc, None ->
-      acc, { b with rope=XmlRope.(rope ++ (of_list ~prov (List.rev seq))) }
+      acc, { b with rope=Rope.(rope ++ (of_list ~prov (List.rev seq))) }
     | acc, Some el -> match el with
       | `El_start ((ns,el),attrs) when ns=xmlns ->
         handle stack seq b acc attrs el
@@ -185,7 +207,7 @@ let of_stream ~prov ~source =
       | `El_end when XmlStack.consumep stack ->
         begin match XmlStack.pop stack with
           | [] ->
-            acc, { b with rope=XmlRope.(rope ++ (of_list ~prov (List.rev seq))) }
+            acc, { b with rope=Rope.(rope ++ (of_list ~prov (List.rev seq))) }
           | stack -> run stack seq b (source acc)
         end
       | `El_end ->
@@ -193,7 +215,7 @@ let of_stream ~prov ~source =
         run stack (`El_end::seq) { b with bindings } (source acc)
       | (`Dtd _ | `Data _) as signal ->
         run stack (signal::seq) b (source acc)
-  and handle stack seq ({ rope; bindings } as b) acc attrs = XmlRope.(function
+  and handle stack seq ({ rope; bindings } as b) acc attrs = Rope.(function
     | "insert" ->
       let literal = of_list ~prov (List.rev seq) in
       let hole = Hole.Named (get_attr "insert" attrs "name") in
@@ -203,7 +225,7 @@ let of_stream ~prov ~source =
           let rope = rope ++ literal ++ template in
           run (XmlStack.push stack) [] { b with rope } (source acc)
         | None ->
-          let rope = rope ++ literal ++ (XmlRope.hole ~prov hole) in
+          let rope = rope ++ literal ++ (Rope.hole ~prov hole) in
           (* TODO: t:insert only inserts a hole on open but the contents
              become later sibling. A Hole.Valued should be created in the
              non-empty t:insert case. *)
@@ -222,24 +244,29 @@ let of_stream ~prov ~source =
   ) in
   fun acc ->
     let bindings = Map (HoleMap.empty, None) in
-    let blueprint = { rope = XmlRope.empty; bindings } in
+    let blueprint = { rope = Rope.empty; bindings } in
     run [1,[]] [] blueprint (source acc)
 
 let xml_source xml_input =
   xml_input, if Xmlm.eoi xml_input then None else Some (Xmlm.input xml_input)
 
 let default_hole = Hole.(function
-  | Valued (_, Default rope)    -> rope
-  | Valued (_, Typed (_, rope)) -> rope
-  | Named name -> raise (Error (`Empty_hole name))
+  | Valued (_, Default rope)    -> Some rope
+  | Valued (_, Typed (_, rope)) -> Some rope
+  | Named name -> None
 )
 
 let bind_hole bindings hole =
   match get_binding bindings hole with
-  | Some t -> t
+  | Some t -> Some t
   | None -> default_hole hole
 
-let bind ~sink acc bindings rope =
+let bind ?(incomplete=false) ~sink acc bindings rope =
   let bind_hole = bind_hole bindings in
-  let patch prov acc hole = acc, bind_hole hole in
-  XmlRope.to_stream ~patch ~sink acc rope
+  let patch prov acc hole =
+    acc, match bind_hole hole with
+    | None when incomplete -> Rope.hole prov hole
+    | None -> raise (Error (`Empty_hole (Hole.name hole)))
+    | Some t -> t
+  in
+  Rope.to_stream ~patch ~sink acc rope

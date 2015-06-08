@@ -1,0 +1,3 @@
+<t:seq>
+  <t:let name="b">[a=<t:insert name="a"/>]</t:let>
+</t:seq>

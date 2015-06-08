@@ -39,17 +39,21 @@ module HoleMap : Map.S
 
 module HoleTable : Hashtbl.S
 
-type t
-type template = (hole, prov) XmlRope.t
-and hole = valued Hole.t
-and valued = Default of template | Typed of string * template
-(* TODO: shouldn't expose? *)
-and bindings =
-| Generator of (hole -> template option) * bindings option
-| Map of template HoleMap.t * bindings option
-| Table of template HoleTable.t * bindings option
+type 'a valued = Default of 'a | Typed of string * 'a
 
-val template : t -> template
+module rec Template : (XmlRope.TEMPLATE with type hole = Rope.t valued Hole.t)
+and Rope : XmlRope.S with
+  type hole = Template.hole and type prov = Template.prov
+
+(* TODO: shouldn't expose? *)
+type bindings =
+| Generator of (Template.hole -> Rope.t option) * bindings option
+| Map of Rope.t HoleMap.t * bindings option
+| Table of Rope.t HoleTable.t * bindings option
+
+type t
+
+val template : t -> Rope.t
 
 val bindings : t -> bindings
 
@@ -60,8 +64,9 @@ val of_stream :
 
 val xml_source : Xmlm.input -> Xmlm.input * Xmlm.signal option
 
-val bind_hole : bindings -> hole -> template
+val bind_hole : bindings -> Template.hole -> Rope.t option
 
 val bind :
+  ?incomplete:bool ->
   sink:(prov -> 'acc -> Xmlm.signal list -> 'acc) ->
-  'acc -> bindings -> template -> 'acc
+  'acc -> bindings -> Rope.t -> 'acc

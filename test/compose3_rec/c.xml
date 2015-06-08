@@ -1,0 +1,3 @@
+<html>
+  <body><p><t:insert name="b"/></p></body>
+</html>

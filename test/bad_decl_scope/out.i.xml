@@ -1,0 +1,7 @@
+<html>
+  <head>
+  </head>
+  <body>
+    <t:insert name="head"/>
+  </body>
+</html>

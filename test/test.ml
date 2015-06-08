@@ -17,6 +17,12 @@
 
 open OUnit
 
+type result = Success | Error | Trouble
+type return = {
+  blue : result;
+  i : result;
+}
+
 (* Utilities *)
 
 let (/) = Filename.concat
@@ -50,10 +56,9 @@ let in_dir dir f =
     Unix.chdir pwd;
     raise e
 
-let run_test ~expected_exit ~channel_fn ~dir ~result =
+let run_diff_test ~channel_fn ~dir ~result env =
   let stderr = Unix.stderr in
   let stdin, stdout = Unix.pipe () in
-  let env = [|"OCAMLRUNPARAM=b";"BLUE=../../blue"|] in
   let test_pid = in_dir dir (fun () ->
     channel_fn (run "test.sh" [||] ~env ()) stdout
   ) in
@@ -63,26 +68,49 @@ let run_test ~expected_exit ~channel_fn ~dir ~result =
   in
   let test_exit = after test_pid in
   let diff_exit = after diff_pid in
-  assert_equal ~msg:"exit" ~printer:string_of_int expected_exit test_exit;
-  assert_equal ~msg:"diff" ~printer:string_of_int 0 diff_exit
+  (test_exit, diff_exit)
 
-let run_success_test dir () =
+let run_test ~expected_exit ~channel_fn ~dir ~result ~env ~name =
+  let run_diff = run_diff_test ~channel_fn ~dir ~result in
+  let (test_exit, diff_exit) = run_diff env in
+  assert_equal ~msg:("exit"^name) ~printer:string_of_int expected_exit test_exit;
+  assert_equal ~msg:("diff"^name) ~printer:string_of_int 0 diff_exit
+
+let run_success_test dir name env () =
   let channel_fn f fd = with_stdout f ~stdout:fd in
-  run_test ~expected_exit:0 ~channel_fn ~dir ~result:"out.xml"
+  run_test
+    ~expected_exit:0 ~channel_fn ~dir ~result:("out"^name^".xml") ~env ~name
 
-let run_error_test dir () =
+let run_error_test dir name env () =
   let channel_fn f fd = with_stderr f ~stderr:fd in
-  run_test ~expected_exit:1 ~channel_fn ~dir ~result:"err.txt"
+  run_test
+    ~expected_exit:1 ~channel_fn ~dir ~result:("err"^name^".txt") ~env ~name
 
-let run_trouble_test dir () =
+let run_trouble_test dir name env () =
   let channel_fn f fd = with_stderr f ~stderr:fd in
-  run_test ~expected_exit:2 ~channel_fn ~dir ~result:"err.txt"
+  run_test
+    ~expected_exit:2 ~channel_fn ~dir ~result:("trouble"^name^".txt") ~env ~name
+
+let run_result = function
+  | Success -> run_success_test
+  | Error   -> run_error_test
+  | Trouble -> run_trouble_test
+
+let run_return_test return name () =
+  run_result return.blue name ""   [|"OCAMLRUNPARAM=b";"BLUE=../../blue"|] ();
+  run_result return.i    name ".i" [|"OCAMLRUNPARAM=b";"BLUE=../../blue -i"|] ()
 
 (* Tests *)
 
-let success_tests = List.map (fun name -> name, `Quick, run_success_test name)
-let error_tests = List.map (fun name -> name, `Quick, run_error_test name)
-let trouble_tests = List.map (fun name -> name, `Quick, run_trouble_test name)
+let tests =
+  List.map (fun (name,return) -> name, `Quick, run_return_test return name)
+
+let success = { blue = Success; i = Success }
+let error   = { blue = Error;   i = Error   }
+let trouble = { blue = Trouble; i = Trouble }
+let incomplete = { blue = Error; i = Success }
+
+let success_tests ts = tests (List.map (fun name -> name, success) ts)
 
 ;;
 Printexc.record_backtrace true;
@@ -108,21 +136,28 @@ Alcotest.run "blue" [
     "compose2";
     "compose3";
   ];
-  "Error", error_tests [
-    "bad_xml_no_close";
-    "self_hole";
-    "unknown_tag";
-    "bad_decl_scope";
-    "bad_insert_name";
-    "bad_let_name";
-    "top_seq_multi";
-    "decl_hole_open";
-    "decl_rec";
-    "decl_mutual_rec";
-    "decl_intro_rec";
-    "bad_compose_scope";
+  "Default", success_tests [
+    "empty_let";
+    "default_insert";
+    "empty_insert";
+    "default_zero_insert";
   ];
-  "Trouble", trouble_tests [
-    "enoent";
+  "Error", tests [
+    "bad_xml_no_close", error;
+    "self_hole", incomplete;
+    "unknown_tag", error;
+    "bad_decl_scope", incomplete;
+    "bad_insert_name", error;
+    "bad_let_name", error;
+    "top_seq_multi", error;
+    "decl_hole_open", incomplete;
+    "decl_rec", incomplete;
+    "decl_mutual_rec", incomplete;
+    "decl_intro_rec", incomplete;
+    "bad_compose_scope", incomplete;
+    "compose3_rec", incomplete;
+  ];
+  "Trouble", tests [
+    "enoent", trouble;
   ];
 ]

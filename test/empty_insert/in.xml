@@ -1,0 +1,8 @@
+<html>
+  <t:let name="empty"/>
+  <body>
+    <t:insert name="empty">
+      <p>Empty!</p>
+    </t:insert>
+  </body>
+</html>
