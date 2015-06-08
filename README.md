@@ -36,7 +36,8 @@ recursively populated with any bindings in scope.
 `t:let` has a single required attribute, `name`, which gives a name to
 the binding that it creates. Bindings are scoped from the point of
 declaration until the end of the parent element. If the parent element
-is `t:seq`, the binding will be exported as well.
+is `t:seq`, the binding will be exported as well. Whitespace before a
+`t:let` is elided up to one or two consecutive new lines.
 
 ## `blue`
 
