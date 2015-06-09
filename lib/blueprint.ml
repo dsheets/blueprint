@@ -89,8 +89,8 @@ struct
     | Named name -> [
         `El_start ((xmlns,"insert"),[("","name"),name]); `El_end;
       ]
-    | Valued (name, Default default) -> []
-    | Valued (name, Typed (typ, default)) -> []
+    | Valued (_name, Default _default) -> []
+    | Valued (_name, Typed (_typ, _default)) -> []
   )
 end
 and Rope : XmlRope.S
@@ -100,7 +100,7 @@ and Rope : XmlRope.S
 
 (* TODO: This is a bit weird... *)
 type bindings =
-| Generator of (Template.hole -> Rope.t option) * bindings option
+| Generator of (string list -> Rope.t option) * bindings option
 | Map of Rope.t HoleMap.t * bindings option
 | Table of Rope.t HoleTable.t * bindings option
 
@@ -129,24 +129,24 @@ let get_attr tag attrs attr =
   try List.assoc ("",attr) attrs
   with Not_found -> raise (Error (`Missing_attribute (tag, attr)))
 
-let rec get_binding bindings hole = match bindings with
+let rec get_binding bindings name = match bindings with
   | Generator (g, more) -> begin
-      match g hole with
+      match g name with
       | Some t -> Some t
       | None -> match more with
-        | Some bindings -> get_binding bindings hole
+        | Some bindings -> get_binding bindings name
         | None -> None
     end
   | Map (map, more) -> begin
-    try Some (HoleMap.find [Hole.name hole] map)
+    try Some (HoleMap.find name map)
     with Not_found -> match more with
-    | Some bindings -> get_binding bindings hole
+    | Some bindings -> get_binding bindings name
     | None -> None
   end
   | Table (tbl, more) -> begin
-    try Some (HoleTable.find tbl [Hole.name hole])
+    try Some (HoleTable.find tbl name)
     with Not_found -> match more with
-    | Some bindings -> get_binding bindings hole
+    | Some bindings -> get_binding bindings name
     | None -> None
   end
 
@@ -218,18 +218,29 @@ let of_stream ~prov ~source =
   and handle stack seq ({ rope; bindings } as b) acc attrs = Rope.(function
     | "insert" ->
       let literal = of_list ~prov (List.rev seq) in
-      let hole = Hole.Named (get_attr "insert" attrs "name") in
-      begin match get_binding bindings hole with
+      let name = get_attr "insert" attrs "name" in
+      begin match get_binding bindings [name] with
         | Some template ->
-          let template = patch (fun _prov -> get_binding bindings) template in
+          let template = patch (fun _prov hole ->
+            get_binding bindings [Hole.name hole]
+          ) template in
+          let default = { b with rope = empty } in
+          let acc, _default = run [0,[]] [] default (source acc) in
           let rope = rope ++ literal ++ template in
-          run (XmlStack.push stack) [] { b with rope } (source acc)
+          run stack [] { b with rope } (source acc)
         | None ->
-          let rope = rope ++ literal ++ (Rope.hole ~prov hole) in
-          (* TODO: t:insert only inserts a hole on open but the contents
-             become later sibling. A Hole.Valued should be created in the
-             non-empty t:insert case. *)
-          run (XmlStack.push stack) [] { b with rope } (source acc)
+          let hole = Hole.Named name in
+          let b = { b with rope = rope ++ literal ++ (Rope.hole ~prov hole) } in
+          match source acc with
+          | acc, None -> acc, b
+          | acc, Some `El_end ->
+            run (XmlStack.push stack) [] b (acc, Some `El_end)
+          | acc, Some signal ->
+            let default = { b with rope = empty } in
+            let acc, default = run [0,[]] [] default (acc, Some signal) in
+            let hole = Hole.Valued (name, Default default.rope) in
+            let rope = rope ++ literal ++ (Rope.hole ~prov hole) in
+            run stack [] { b with rope } (source acc)
       end
     | "seq" -> run (XmlStack.push stack) seq b (source acc)
     | "let" ->
@@ -257,7 +268,7 @@ let default_hole = Hole.(function
 )
 
 let bind_hole bindings hole =
-  match get_binding bindings hole with
+  match get_binding bindings [Hole.name hole] with
   | Some t -> Some t
   | None -> default_hole hole
 

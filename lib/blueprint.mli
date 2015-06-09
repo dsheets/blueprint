@@ -47,7 +47,7 @@ and Rope : XmlRope.S with
 
 (* TODO: shouldn't expose? *)
 type bindings =
-| Generator of (Template.hole -> Rope.t option) * bindings option
+| Generator of (string list -> Rope.t option) * bindings option
 | Map of Rope.t HoleMap.t * bindings option
 | Table of Rope.t HoleTable.t * bindings option
 

@@ -1,0 +1,4 @@
+<html>
+  <t:let name="x"><t:insert name="y">No 'y'!</t:insert></t:let>
+  <body><p><t:let name="y">Y</t:let><t:insert name="x"/></p></body>
+</html>

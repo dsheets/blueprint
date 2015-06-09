@@ -1,0 +1,4 @@
+<html>
+  <t:let name="x">X</t:let>
+  <body><p><t:insert name="x">'x' isn't set!</t:insert></p></body>
+</html>

@@ -115,6 +115,7 @@ let success_tests ts = tests (List.map (fun name -> name, success) ts)
 ;;
 Printexc.record_backtrace true;
 Alcotest.run "blue" [
+
   "Simple", success_tests [
     "decl";
     "self_decl";
@@ -131,18 +132,23 @@ Alcotest.run "blue" [
     "decl_hole_closed";
     "decl_dup";
   ];
+
   "Composition", success_tests [
     "top_seq_binder";
     "compose2";
     "compose3";
     "compose_stdin";
   ];
+
   "Default", success_tests [
     "empty_let";
     "default_insert";
     "empty_insert";
     "default_zero_insert";
+    "override_default";
+    "default_open";
   ];
+
   "Error", tests [
     "bad_xml_no_close", error;
     "self_hole", incomplete;
@@ -157,7 +163,9 @@ Alcotest.run "blue" [
     "decl_intro_rec", incomplete;
     "bad_compose_scope", incomplete;
     "compose3_rec", incomplete;
+    "default_empty_insert", incomplete;
   ];
+
   "Trouble", tests [
     "enoent", trouble;
   ];
