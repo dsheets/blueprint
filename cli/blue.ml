@@ -27,8 +27,6 @@ let ns = ns_bind_default
 let ns_map_default ns = if ns = Blueprint.xmlns then Some "t" else None
 let ns_prefix = ns_map_default
 
-let empty_bindings = Blueprint.(Table (HoleTable.create 1, None))
-
 let fatal_blueprint_error file err =
   eprintf "%s: %s: template error:\n%s\n%!"
     exec_name file (Blueprint.error_message err);
@@ -111,7 +109,7 @@ let rec compose prev_bindings incomplete = function
   | file::files ->
     (* template is ignored in all but the last file *)
     let bindings = Blueprint.bindings (read_blueprint file) in
-    compose (Blueprint.append bindings prev_bindings) incomplete files
+    compose (Blueprint.Bindings.append bindings prev_bindings) incomplete files
 
 let compose_cmd =
   let doc = "templates to compose, use '-' to read from stdin" in
@@ -125,7 +123,7 @@ let compose_cmd =
   ]
   in
   Term.(
-    ret (pure (compose empty_bindings) $ incomplete $ templates),
+    ret (pure (compose Blueprint.Bindings.empty) $ incomplete $ templates),
     info exec_name ~version ~man
   )
 

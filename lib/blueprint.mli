@@ -31,42 +31,52 @@ val xmlns : string
 
 val error_message : error -> string
 
-module Hole : sig
-  type 'value t = Named of string | Valued of string * 'value
-end
-
 module HoleMap : Map.S
 
 module HoleTable : Hashtbl.S
 
+module Bindings : sig
+  (* TODO: shouldn't expose? *)
+  type 'rope t =
+    | Generator of (string list -> 'rope option) * 'rope t option
+    | Map of 'rope HoleMap.t * 'rope t option
+    | Table of 'rope HoleTable.t * 'rope t option
+
+  val empty : 'a t
+  val append : 'a t -> 'a t -> 'a t
+end
+
+module Hole : sig
+  (* TODO: expose? *)
+  type ('rope, 'value) t = {
+    name : string;
+    default : 'value option;
+    env : 'rope Bindings.t;
+  }
+end
+
 type 'a valued = Default of 'a | Typed of string * 'a
 
-module rec Template : (XmlRope.TEMPLATE with type hole = Rope.t valued Hole.t)
+module rec Template :
+  (XmlRope.TEMPLATE with type hole = (Rope.t, Rope.t valued) Hole.t
+                     and type prov = prov)
 and Rope : XmlRope.S with
   type hole = Template.hole and type prov = Template.prov
-
-(* TODO: shouldn't expose? *)
-type bindings =
-| Generator of (string list -> Rope.t option) * bindings option
-| Map of Rope.t HoleMap.t * bindings option
-| Table of Rope.t HoleTable.t * bindings option
 
 type t
 
 val template : t -> Rope.t
 
-val bindings : t -> bindings
-
-val append : bindings -> bindings -> bindings
+val bindings : t -> Rope.t Bindings.t
 
 val of_stream :
   prov:prov -> source:('acc -> 'acc * Xmlm.signal option) -> 'acc -> 'acc * t
 
 val xml_source : Xmlm.input -> Xmlm.input * Xmlm.signal option
 
-val bind_hole : bindings -> Template.hole -> Rope.t option
+val bind_hole : Rope.t Bindings.t -> Template.hole -> Rope.t option
 
 val bind :
   ?incomplete:bool ->
   sink:(prov -> 'acc -> Xmlm.signal list -> 'acc) ->
-  'acc -> bindings -> Rope.t -> 'acc
+  'acc -> Rope.t Bindings.t -> Rope.t -> 'acc

@@ -39,14 +39,6 @@ let error_message : error -> string = function
   | `Data_after_root -> "data are not allowed after the root element"
   | `Element_after_root -> "tags are not allowed after the root element"
 
-module Hole = struct
-  type 'value t =
-  | Named of string
-  | Valued of string * 'value
-
-  let name = function Named name | Valued (name, _) -> name
-end
-
 let rec compare_string_list sl sl' = match sl, sl' with
   | [], [] -> 0
   | _::_, [] -> 1
@@ -67,6 +59,60 @@ module HoleTable = Hashtbl.Make(struct
   let hash = Hashtbl.hash
 end)
 
+module Bindings = struct
+(* TODO: This is a bit weird... *)
+  type 'rope t =
+    | Generator of (string list -> 'rope option) * 'rope t option
+    | Map of 'rope HoleMap.t * 'rope t option
+    | Table of 'rope HoleTable.t * 'rope t option
+
+  let empty = Map (HoleMap.empty, None)
+
+  (* TODO: this is horrible *)
+  let rec append a b = match a with
+    | Generator (f,None) -> Generator (f,Some b)
+    | Generator (f,Some bs) -> Generator (f,Some (append bs b))
+    | Map (m,None) -> Map (m,Some b)
+    | Map (m,Some bs) -> Map (m,Some (append bs b))
+    | Table (t,None) -> Table (t,Some b)
+    | Table (t,Some bs) -> Table (t, Some (append bs b))
+
+  (* TODO: also horrible *)
+  let rec get bindings name = match bindings with
+    | Generator (g, more) -> begin
+        match g name with
+        | Some t -> Some t
+        | None -> match more with
+          | Some bindings -> get bindings name
+          | None -> None
+      end
+    | Map (map, more) -> begin
+        try Some (HoleMap.find name map)
+        with Not_found -> match more with
+          | Some bindings -> get bindings name
+          | None -> None
+      end
+    | Table (tbl, more) -> begin
+        try Some (HoleTable.find tbl name)
+        with Not_found -> match more with
+          | Some bindings -> get bindings name
+          | None -> None
+      end
+end
+
+module Hole = struct
+  type ('rope, 'value) t = {
+    name : string;
+    default : 'value option;
+    env : 'rope Bindings.t;
+  }
+
+  let name { name } = name
+
+  let named name = { name; default = None; env = Bindings.empty }
+  let valued name value = { name; default = Some value; env = Bindings.empty }
+end
+
 (* TODO: What about lexical info? values are assumed to be static per
    source *)
 type prov =
@@ -79,18 +125,17 @@ type 'a valued =
   | Typed of string * 'a
 
 module rec Template :
-  XmlRope.TEMPLATE with type hole = Rope.t valued Hole.t and type prov = prov =
-struct
-  type hole = Rope.t valued Hole.t
+  XmlRope.TEMPLATE with type hole = (Rope.t, Rope.t valued) Hole.t
+                    and type prov = prov
+= struct
+  type hole = (Rope.t, Rope.t valued) Hole.t
   type prov = prov'
 
-  (* TODO: defaults *)
+  (* TODO: defaults, bindings? *)
   let signals_of_hole _prov = Hole.(function
-    | Named name -> [
+    | { name } -> [
         `El_start ((xmlns,"insert"),[("","name"),name]); `El_end;
       ]
-    | Valued (_name, Default _default) -> []
-    | Valued (_name, Typed (_typ, _default)) -> []
   )
 end
 and Rope : XmlRope.S
@@ -98,15 +143,9 @@ and Rope : XmlRope.S
    and type prov = Template.prov
   = XmlRope.Make(Template)
 
-(* TODO: This is a bit weird... *)
-type bindings =
-| Generator of (string list -> Rope.t option) * bindings option
-| Map of Rope.t HoleMap.t * bindings option
-| Table of Rope.t HoleTable.t * bindings option
-
 type t = {
   rope : Rope.t;
-  bindings : bindings;
+  bindings : Rope.t Bindings.t;
 }
 
 let template { rope } = rope
@@ -114,44 +153,14 @@ let bindings { bindings } = bindings
 
 (* TODO: match? *)
 let declare name rope bindings =
-  Map (HoleMap.singleton name rope, Some bindings)
-
-(* TODO: this is horrible *)
-let rec append a b = match a with
-  | Generator (f,None) -> Generator (f,Some b)
-  | Generator (f,Some bs) -> Generator (f,Some (append bs b))
-  | Map (m,None) -> Map (m,Some b)
-  | Map (m,Some bs) -> Map (m,Some (append bs b))
-  | Table (t,None) -> Table (t,Some b)
-  | Table (t,Some bs) -> Table (t, Some (append bs b))
+  Bindings.Map (HoleMap.singleton name rope, Some bindings)
 
 let get_attr tag attrs attr =
   try List.assoc ("",attr) attrs
   with Not_found -> raise (Error (`Missing_attribute (tag, attr)))
 
-let rec get_binding bindings name = match bindings with
-  | Generator (g, more) -> begin
-      match g name with
-      | Some t -> Some t
-      | None -> match more with
-        | Some bindings -> get_binding bindings name
-        | None -> None
-    end
-  | Map (map, more) -> begin
-    try Some (HoleMap.find name map)
-    with Not_found -> match more with
-    | Some bindings -> get_binding bindings name
-    | None -> None
-  end
-  | Table (tbl, more) -> begin
-    try Some (HoleTable.find tbl name)
-    with Not_found -> match more with
-    | Some bindings -> get_binding bindings name
-    | None -> None
-  end
-
 module XmlStack = struct
-  type frame = int * (int * bindings) list
+  type frame = int * (int * Rope.t Bindings.t) list
   type t = frame list
 
   let consumep = function (0,_)::_ -> true | [] | _::_ -> false
@@ -219,17 +228,17 @@ let of_stream ~prov ~source =
     | "insert" ->
       let literal = of_list ~prov (List.rev seq) in
       let name = get_attr "insert" attrs "name" in
-      begin match get_binding bindings [name] with
+      begin match Bindings.get bindings [name] with
         | Some template ->
           let template = patch (fun _prov hole ->
-            get_binding bindings [Hole.name hole]
+            Bindings.get bindings [Hole.name hole]
           ) template in
           let default = { b with rope = empty } in
           let acc, _default = run [0,[]] [] default (source acc) in
           let rope = rope ++ literal ++ template in
           run stack [] { b with rope } (source acc)
         | None ->
-          let hole = Hole.Named name in
+          let hole = Hole.named name in
           let b = { b with rope = rope ++ literal ++ (Rope.hole ~prov hole) } in
           match source acc with
           | acc, None -> acc, b
@@ -238,7 +247,7 @@ let of_stream ~prov ~source =
           | acc, Some signal ->
             let default = { b with rope = empty } in
             let acc, default = run [0,[]] [] default (acc, Some signal) in
-            let hole = Hole.Valued (name, Default default.rope) in
+            let hole = Hole.valued name (Default default.rope) in
             let rope = rope ++ literal ++ (Rope.hole ~prov hole) in
             run stack [] { b with rope } (source acc)
       end
@@ -254,7 +263,7 @@ let of_stream ~prov ~source =
       raise (Error (`Unknown_tag el))
   ) in
   fun acc ->
-    let bindings = Map (HoleMap.empty, None) in
+    let bindings = Bindings.empty in
     let blueprint = { rope = Rope.empty; bindings } in
     run [1,[]] [] blueprint (source acc)
 
@@ -262,13 +271,13 @@ let xml_source xml_input =
   xml_input, if Xmlm.eoi xml_input then None else Some (Xmlm.input xml_input)
 
 let default_hole = Hole.(function
-  | Valued (_, Default rope)    -> Some rope
-  | Valued (_, Typed (_, rope)) -> Some rope
-  | Named name -> None
+  | { default = Some (Default rope) }    -> Some rope
+  | { default = Some (Typed (_, rope)) } -> Some rope
+  | { default = None }                   -> None
 )
 
 let bind_hole bindings hole =
-  match get_binding bindings [Hole.name hole] with
+  match Bindings.get bindings [Hole.name hole] with
   | Some t -> Some t
   | None -> default_hole hole
 
