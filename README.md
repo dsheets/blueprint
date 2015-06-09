@@ -29,7 +29,13 @@ declare document-level bindings.
 `t:insert` has a single required attribute, `name`, which gives a name
 to the 'hole' that it creates. Bindings against this name will fill this
 hole. When holes are filled, the template which fills the hole will be
-recursively populated with any bindings in scope.
+recursively populated with any bindings in scope. If an expansion step
+would use a binding previously used in the expansion, the expansion
+stops before the previous hole is filled.
+
+If content is supplied to a `t:insert` element, it will be used as the
+default value of the hole in the case that no binding matching `@name`
+exists in scope.
 
 ### `t:let`
 
@@ -46,4 +52,6 @@ library. `blue` accepts a sequence of files and composes them into a
 single output document. The last file listed is used as the template and
 all preceding files are used only for their bindings. Any unbound content
 in the preceding files is discarded. The result must not contain any
-template elements and will be sent to `stdout`.
+template elements and will be sent to `stdout`. To read from `stdin`,
+use `-` as a file name. The `-i` option will disable incomplete template
+errors and allow output of partially fulfilled templates.
