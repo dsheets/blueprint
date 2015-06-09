@@ -28,6 +28,7 @@ module type S = sig
   type hole
   type prov
   type t
+  type 'a patch = 'a -> prov -> hole -> 'a * t
 
   val of_list : prov:prov -> Xmlm.signal list -> t
 
@@ -48,16 +49,13 @@ module type S = sig
 
   val holes : t -> hole list
 
-  val patch : (prov -> hole -> t option) -> t -> t
+  val patch : 'a patch -> 'a -> t -> t
 
   val to_stream :
-    patch:(prov -> 'acc -> hole -> 'acc * t) ->
-    sink:(prov -> 'acc -> Xmlm.signal list -> 'acc) ->
-    'acc -> t -> 'acc
+    patch:'a patch -> sink:(prov -> 'out -> Xmlm.signal list -> 'out) -> 'a ->
+    'out -> t -> 'out
 
-  val to_list :
-    patch:(prov -> Xmlm.signal list -> hole -> Xmlm.signal list * t) ->
-    t -> Xmlm.signal list
+  val to_list : patch:'a patch -> 'a -> t -> Xmlm.signal list
 end
 
 module Make(M : TEMPLATE) : S with type hole = M.hole and type prov = M.prov =
@@ -71,6 +69,8 @@ struct
     | Wrap of M.prov * Xmlm.signal deque * t * Xmlm.signal deque
     | Hole of M.prov * M.hole
     | Sequence of t deque
+
+  type 'a patch = 'a -> prov -> hole -> 'a * t
 
   let of_list ~prov list = Literal (prov, (list,[]))
 
@@ -112,51 +112,50 @@ struct
 
   (* TODO: should use something other than Hashtbl? *)
   (* TODO: should also optimize? *)
-  let patch f rope =
-    let rec aux tbl = function
+  let patch f acc rope =
+    let rec aux ((acc,tbl) as c) = function
       | Literal (_,_) as r -> r
-      | Wrap (prov,l,v,r) -> Wrap (prov,l,aux tbl v,r)
+      | Wrap (prov,l,v,r) -> Wrap (prov,l,aux c v,r)
       | Sequence (fropes,rropes) ->
-        Sequence (List.map (aux tbl) fropes, List.map (aux tbl) rropes)
-      | Hole (prov, hole) as h -> match f prov hole with
-        | None -> h
-        | Some t ->
-          if Hashtbl.mem tbl t
-          then h
-          else
-            let tbl = Hashtbl.copy tbl in
-            Hashtbl.replace tbl t ();
-            aux tbl t
+        Sequence (List.map (aux c) fropes, List.map (aux c) rropes)
+      | Hole (prov, hole) as h ->
+        let acc, t = f acc prov hole in
+        if Hashtbl.mem tbl t
+        then h
+        else
+          let tbl = Hashtbl.copy tbl in
+          Hashtbl.replace tbl t ();
+          aux (acc,tbl) t
     in
     let tbl = Hashtbl.create 8 in
     Hashtbl.replace tbl rope ();
-    aux tbl rope
+    aux (acc,tbl) rope
 
   (* TODO: should use patch? *)
   let rec to_stream ~patch ~sink =
-    let rec aux tbl acc = function
-      | Literal (prov, (fs,rs)) -> sink prov (sink prov acc fs) (List.rev rs)
+    let rec aux ((acc,tbl) as c) out = function
+      | Literal (prov, (fs,rs)) -> sink prov (sink prov out fs) (List.rev rs)
       | Hole (prov, h) ->
-        let acc', rope = patch prov acc h in
+        let acc, rope = patch acc prov h in
         if Hashtbl.mem tbl rope
-        then sink prov acc (M.signals_of_hole prov h)
+        then sink prov out (M.signals_of_hole prov h)
         else
           let tbl = Hashtbl.copy tbl in
           Hashtbl.replace tbl rope ();
-          aux tbl acc' rope
+          aux (acc,tbl) out rope
       | Wrap (prov, (fs,rs), v, (fs',rs')) ->
-        let acc = sink prov (sink prov acc fs) (List.rev rs) in
-        let acc = aux tbl acc v in
-        sink prov (sink prov acc fs') (List.rev rs')
+        let out = sink prov (sink prov out fs) (List.rev rs) in
+        let out = aux c out v in
+        sink prov (sink prov out fs') (List.rev rs')
       | Sequence (fropes, rropes) ->
-        List.(fold_left (aux tbl) (fold_left (aux tbl) acc fropes) (rev rropes))
+        List.(fold_left (aux c) (fold_left (aux c) out fropes) (rev rropes))
     in
-    fun acc rope ->
+    fun acc out rope ->
       let tbl = Hashtbl.create 8 in
       Hashtbl.replace tbl rope ();
-      aux tbl acc rope
+      aux (acc, tbl) out rope
 
-  let to_list ~patch rope =
+  let to_list ~patch acc rope =
     let sink _ acc s = List.rev_append s acc in
-    List.rev (to_stream ~patch ~sink [] rope)
+    List.rev (to_stream ~patch ~sink acc [] rope)
 end

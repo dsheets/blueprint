@@ -29,6 +29,7 @@ module type S = sig
   type hole
   type prov
   type t
+  type 'a patch = 'a -> prov -> hole -> 'a * t
 
   val of_list : prov:prov -> Xmlm.signal list -> t
 
@@ -49,16 +50,13 @@ module type S = sig
 
   val holes : t -> hole list
 
-  val patch : (prov -> hole -> t option) -> t -> t
+  val patch : 'a patch -> 'a -> t -> t
 
   val to_stream :
-    patch:(prov -> 'acc -> hole -> 'acc * t) ->
-    sink:(prov -> 'acc -> Xmlm.signal list -> 'acc) ->
-    'acc -> t -> 'acc
+    patch:'a patch -> sink:(prov -> 'out -> Xmlm.signal list -> 'out) -> 'a ->
+    'out -> t -> 'out
 
-  val to_list :
-    patch:(prov -> Xmlm.signal list -> hole -> Xmlm.signal list * t) ->
-    t -> Xmlm.signal list
+  val to_list : patch:'a patch -> 'a -> t -> Xmlm.signal list
 end
 
 module Make(M : TEMPLATE) : S with type hole = M.hole and type prov = M.prov

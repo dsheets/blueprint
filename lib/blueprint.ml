@@ -109,8 +109,8 @@ module Hole = struct
 
   let name { name } = name
 
-  let named name = { name; default = None; env = Bindings.empty }
-  let valued name value = { name; default = Some value; env = Bindings.empty }
+  let named name env = { name; default = None; env; }
+  let valued name value env = { name; default = Some value; env; }
 end
 
 (* TODO: What about lexical info? values are assumed to be static per
@@ -230,15 +230,18 @@ let of_stream ~prov ~source =
       let name = get_attr "insert" attrs "name" in
       begin match Bindings.get bindings [name] with
         | Some template ->
-          let template = patch (fun _prov hole ->
-            Bindings.get bindings [Hole.name hole]
-          ) template in
+          let template = patch (fun env prov hole ->
+            env, match Bindings.get bindings [Hole.name hole] with
+            | None -> Rope.hole ~prov hole
+            | Some t -> t
+          ) () template in
+          (* Now, we throw away any default value. *)
           let default = { b with rope = empty } in
           let acc, _default = run [0,[]] [] default (source acc) in
           let rope = rope ++ literal ++ template in
           run stack [] { b with rope } (source acc)
         | None ->
-          let hole = Hole.named name in
+          let hole = Hole.named name bindings in
           let b = { b with rope = rope ++ literal ++ (Rope.hole ~prov hole) } in
           match source acc with
           | acc, None -> acc, b
@@ -247,7 +250,7 @@ let of_stream ~prov ~source =
           | acc, Some signal ->
             let default = { b with rope = empty } in
             let acc, default = run [0,[]] [] default (acc, Some signal) in
-            let hole = Hole.valued name (Default default.rope) in
+            let hole = Hole.valued name (Default default.rope) bindings in
             let rope = rope ++ literal ++ (Rope.hole ~prov hole) in
             run stack [] { b with rope } (source acc)
       end
@@ -281,12 +284,12 @@ let bind_hole bindings hole =
   | Some t -> Some t
   | None -> default_hole hole
 
-let bind ?(incomplete=false) ~sink acc bindings rope =
+let bind ?(incomplete=false) ~sink out bindings rope =
   let bind_hole = bind_hole bindings in
-  let patch prov acc hole =
-    acc, match bind_hole hole with
+  let patch env prov hole =
+    env, match bind_hole hole with
     | None when incomplete -> Rope.hole prov hole
     | None -> raise (Error (`Empty_hole (Hole.name hole)))
     | Some t -> t
   in
-  Rope.to_stream ~patch ~sink acc rope
+  Rope.to_stream ~patch ~sink () out rope
