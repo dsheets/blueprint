@@ -1,0 +1,32 @@
+<html>
+  <t:let name="who">
+    <t:let name="x">
+      [<t:insert name="name"/>]
+      <i>vs.</i>
+      <t:let name="x">[<t:insert name="name"/>]</t:let>
+      <t:insert name="defense"/>
+    </t:let>
+    <t:insert name="prosecution"/>
+  </t:let>
+  <t:let name="defense">
+    <t:let name="name">Daniel Webster</t:let>
+    <t:insert name="x"/>
+  </t:let>
+  <t:let name="prosecution">
+    <t:let name="name">Mr. Scratch</t:let>
+    <t:insert name="x"/>
+  </t:let>
+  <body>
+    <p><t:insert name="who"/></p>
+    <t:let name="defense">
+      <t:let name="x">Defense: <t:insert name="name"/></t:let>
+      <t:insert name="defense"/>
+    </t:let>
+    <t:let name="prosecution">
+      <t:let name="x">Prosecution: <t:insert name="name"/></t:let>
+      <t:insert name="prosecution"/>
+    </t:let>
+    <p><t:insert name="defense"/></p>
+    <p><t:insert name="prosecution"/></p>
+  </body>
+</html>

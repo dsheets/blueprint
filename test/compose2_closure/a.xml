@@ -1,0 +1,8 @@
+<t:seq>
+  <t:let name="a">
+    <t:let name="x">3</t:let>
+    <t:let name="y">0</t:let>
+    <t:let name="z">9</t:let>
+    <t:insert name="p"/>
+  </t:let>
+</t:seq>

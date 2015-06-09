@@ -129,6 +129,8 @@ Alcotest.run "blue" [
     "top_seq_ws";
     "decl_local_let";
     "decl_double_open";
+    "decl_hole_open";
+    "decl_hole_open_chained";
     "decl_hole_closed";
     "decl_dup";
   ];
@@ -138,6 +140,7 @@ Alcotest.run "blue" [
     "compose2";
     "compose3";
     "compose_stdin";
+    "compose2_closure";
   ];
 
   "Default", success_tests [
@@ -157,7 +160,6 @@ Alcotest.run "blue" [
     "bad_insert_name", error;
     "bad_let_name", error;
     "top_seq_multi", error;
-    "decl_hole_open", incomplete;
     "decl_rec", incomplete;
     "decl_mutual_rec", incomplete;
     "decl_intro_rec", incomplete;
