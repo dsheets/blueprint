@@ -146,10 +146,12 @@ Alcotest.run "blue" [
   "Default", success_tests [
     "empty_let";
     "default_insert";
+    "insert_default_insert";
     "empty_insert";
     "default_zero_insert";
     "override_default";
     "default_open";
+    "default_closure";
   ];
 
   "Error", tests [

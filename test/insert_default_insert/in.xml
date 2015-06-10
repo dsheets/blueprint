@@ -1,0 +1,11 @@
+<html>
+  <t:let name="x">
+    <t:insert name="">
+      <t:insert name="y">No 'y'!</t:insert>
+    </t:insert>
+  </t:let>
+  <body>
+    <t:let name="y">'y'!</t:let>
+    <t:insert name="x"/>
+  </body>
+</html>

@@ -206,6 +206,17 @@ let rtrim = function
 
 let empty_blueprint = { rope = Rope.empty; bindings = Bindings.empty }
 
+let default_hole = Hole.(function
+  | { default = Some (Default rope) }    -> Some rope
+  | { default = Some (Typed (_, rope)) } -> Some rope
+  | { default = None }                   -> None
+)
+
+let bind_hole bindings hole =
+  match Bindings.get bindings [Hole.name hole] with
+  | Some t -> Some t
+  | None -> default_hole hole
+
 let of_stream ~prov ~source =
   let rec run stack seq ({ rope; bindings } as b) = function
     | acc, None ->
@@ -233,7 +244,7 @@ let of_stream ~prov ~source =
       begin match Bindings.get bindings [name] with
         | Some template ->
           let template = patch (fun env prov hole ->
-            match Bindings.get env [Hole.name hole] with
+            match bind_hole env hole with
             | None -> (env, Rope.hole ~prov hole)
             | Some t -> (Bindings.append hole.Hole.env env, t)
           ) bindings template in
@@ -242,13 +253,11 @@ let of_stream ~prov ~source =
           let acc, _default = run [0,[]] [] default (source acc) in
           let rope = rope ++ literal ++ template in
           run stack [] { b with rope } (source acc)
-        | None ->
-          let hole = Hole.named name bindings in
-          let b = { b with rope = rope ++ literal ++ (Rope.hole ~prov hole) } in
-          match source acc with
-          | acc, None -> acc, b
-          | acc, Some `El_end ->
-            run (XmlStack.push stack) [] b (acc, Some `El_end)
+        | None -> match source acc with
+          | (acc, (None | Some `El_end)) as c ->
+            let hole = Hole.named name bindings in
+            let rope = rope ++ literal ++ (Rope.hole ~prov hole) in
+            run (XmlStack.push stack) [] { b with rope } c
           | acc, Some signal ->
             let default = { b with rope = empty } in
             let acc, default = run [0,[]] [] default (acc, Some signal) in
@@ -271,17 +280,6 @@ let of_stream ~prov ~source =
 
 let xml_source xml_input =
   xml_input, if Xmlm.eoi xml_input then None else Some (Xmlm.input xml_input)
-
-let default_hole = Hole.(function
-  | { default = Some (Default rope) }    -> Some rope
-  | { default = Some (Typed (_, rope)) } -> Some rope
-  | { default = None }                   -> None
-)
-
-let bind_hole bindings hole =
-  match Bindings.get bindings [Hole.name hole] with
-  | Some t -> Some t
-  | None -> default_hole hole
 
 let bind ?(incomplete=false) ~sink out bindings rope =
   let patch env prov hole =
