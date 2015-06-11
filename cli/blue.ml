@@ -24,8 +24,7 @@ let exec_name = Filename.basename Sys.argv.(0)
 let ns_bind_default = function "t" -> Some Blueprint.xmlns | _ -> None
 let ns = ns_bind_default
 
-let ns_map_default ns = if ns = Blueprint.xmlns then Some "t" else None
-let ns_prefix = ns_map_default
+let ns_prefix = Blueprint.xmlns_map_default
 
 let fatal_blueprint_error file err =
   eprintf "%s: %s: template error:\n%s\n%!"

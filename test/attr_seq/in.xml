@@ -1,0 +1,5 @@
+<html>
+  <body>
+    <t:attr name="class"><t:seq/></t:attr>
+  </body>
+</html>

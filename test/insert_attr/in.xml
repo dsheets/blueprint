@@ -1,0 +1,7 @@
+<html>
+  <body>
+    <t:insert name="missing">
+      <t:attr name="class">main</t:attr>
+    </t:insert>
+  </body>
+</html>

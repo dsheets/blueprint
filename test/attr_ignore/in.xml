@@ -1,0 +1,7 @@
+<html>
+  <body>
+    <p>After this paragraph, there is an attribute attachment.</p>
+    <t:attr name="class">main</t:attr>
+    <p>The attribute attachment will be ignored.</p>
+  </body>
+</html>

@@ -30,12 +30,15 @@ module type S = sig
   type prov
   type t
   type 'a patch = 'a -> prov -> hole -> 'a * t
+  type 'a sink = prov -> 'a -> Xmlm.signal list -> 'a
 
   val of_list : prov:prov -> Xmlm.signal list -> t
 
-  val wrap : prov:prov -> Xmlm.signal deque -> t -> Xmlm.signal deque -> t
+  val make_hole : prov:prov -> hole -> t
 
-  val hole : prov:prov -> hole -> t
+  val make_attrs : prov:prov -> Xmlm.tag -> (Xmlm.name * t) list -> t
+  val in_attrs : t -> bool
+  val with_attr : t -> Xmlm.name * t -> t
 
   val concat : t -> t -> t
   val ( ++ ) : t -> t -> t

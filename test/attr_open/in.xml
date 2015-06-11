@@ -1,0 +1,5 @@
+<html>
+  <body>
+    <t:attr name="class"><t:insert name="foo"/></t:attr>
+  </body>
+</html>

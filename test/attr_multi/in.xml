@@ -1,0 +1,7 @@
+<html>
+  <body>
+    <t:attr name="id">content</t:attr>
+    <t:attr name="class">best</t:attr>
+    <t:attr name="id">main</t:attr>
+  </body>
+</html>

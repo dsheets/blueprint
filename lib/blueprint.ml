@@ -31,6 +31,8 @@ exception Error of error
 
 let xmlns = "https://opam.ocaml.org/packages/blueprint/xmlns/0/#"
 
+let xmlns_map_default ns = if ns = xmlns then Some "t" else None
+
 let error_message : error -> string = function
   | `Empty_hole name -> "No value for hole named '"^name^"'"
   | `Unknown_tag tag -> "Unknown tag '"^tag^"'"
@@ -179,6 +181,23 @@ module XmlStack = struct
     | [] -> []
 end
 
+let rec rtrim_all = function
+  | (`Data s)::r ->
+    let len = String.length s in
+    let rec last i =
+      let i = i - 1 in
+      if i < 0 then 0
+      else match String.get s i with
+        | ' ' | '\t' | '\n' -> last i
+        | _ -> i + 1
+    in
+    if len > 0
+    then match last len with
+      | 0 -> rtrim_all r
+      | i -> (`Data (String.sub s 0 i))::r
+    else rtrim_all r
+  | s -> s
+
 let rtrim = function
   | (`Data s)::r ->
     let len = String.length s in
@@ -200,8 +219,10 @@ let rtrim = function
       else i
     in
     if len > 0
-    then (`Data (String.sub s 0 (last len)))::r
-    else (`Data s)::r
+    then match last len with
+      | 0 -> r
+      | i -> (`Data (String.sub s 0 i))::r
+    else r
   | s -> s
 
 let empty_blueprint = { rope = Rope.empty; bindings = Bindings.empty }
@@ -216,6 +237,36 @@ let bind_hole bindings hole =
   match Bindings.get bindings [Hole.name hole] with
   | Some t -> Some t
   | None -> default_hole hole
+
+let xml_source xml_input =
+  xml_input, if Xmlm.eoi xml_input then None else Some (Xmlm.input xml_input)
+
+let bind ?(incomplete=false) ~sink out bindings rope =
+  let patch env prov hole =
+    match bind_hole env hole with
+    | None when incomplete -> env, Rope.make_hole prov hole
+    | None -> raise (Error (`Empty_hole (Hole.name hole)))
+    | Some t -> (Bindings.append hole.Hole.env env, t)
+  in
+  Rope.to_stream ~patch ~sink bindings out rope
+
+(*
+let string_of_rope rope =
+  let sink _prov out s = List.iter (Xmlm.output out) s; out in
+  let suppress = ref true in
+  let buffer = Buffer.create 16 in
+  let output byte =
+    if not !suppress then Buffer.add_char buffer (char_of_int byte)
+  in
+  let ns_prefix = xmlns_map_default in
+  let out = Xmlm.make_output ~decl:false ~ns_prefix (`Fun output) in
+  Xmlm.output out (`Dtd None);
+  Xmlm.output out (`El_start (("","x"),[]));
+  Xmlm.output out (`Data "");
+  suppress := false;
+  let _out = bind ~incomplete:true ~sink out Bindings.empty rope in
+  Buffer.contents buffer
+*)
 
 let of_stream ~prov ~source =
   let rec run stack seq ({ rope; bindings } as b) = function
@@ -237,6 +288,7 @@ let of_stream ~prov ~source =
         run stack (`El_end::seq) { b with bindings } (source acc)
       | (`Dtd _ | `Data _) as signal ->
         run stack (signal::seq) b (source acc)
+
   and handle stack seq ({ rope; bindings } as b) acc attrs = Rope.(function
     | "insert" ->
       let literal = of_list ~prov (List.rev seq) in
@@ -245,7 +297,7 @@ let of_stream ~prov ~source =
         | Some template ->
           let template = patch (fun env prov hole ->
             match bind_hole env hole with
-            | None -> (env, Rope.hole ~prov hole)
+            | None -> (env, Rope.make_hole ~prov hole)
             | Some t -> (Bindings.append hole.Hole.env env, t)
           ) bindings template in
           (* Now, we throw away any default value. *)
@@ -256,36 +308,48 @@ let of_stream ~prov ~source =
         | None -> match source acc with
           | (acc, (None | Some `El_end)) as c ->
             let hole = Hole.named name bindings in
-            let rope = rope ++ literal ++ (Rope.hole ~prov hole) in
+            let rope = rope ++ literal ++ (Rope.make_hole ~prov hole) in
             run (XmlStack.push stack) [] { b with rope } c
           | acc, Some signal ->
             let default = { b with rope = empty } in
             let acc, default = run [0,[]] [] default (acc, Some signal) in
             let hole = Hole.valued name (Default default.rope) bindings in
-            let rope = rope ++ literal ++ (Rope.hole ~prov hole) in
+            let rope = rope ++ literal ++ (Rope.make_hole ~prov hole) in
             run stack [] { b with rope } (source acc)
       end
+
+    | "attr" ->
+      let name = get_attr "attr" attrs "name" in
+      let content = { b with rope = empty } in
+      let acc, content = run [0,[]] [] content (source acc) in
+      begin match rtrim_all seq with
+        | (`El_start (tag,attrs))::r ->
+          let literal = of_list ~prov (List.rev r) in
+          let attr = (("",name),content.rope) in
+          let rope = rope ++ literal ++ (make_attrs ~prov (tag,attrs) [attr]) in
+          run stack [] { b with rope } (source acc)
+        | [] ->
+          if in_attrs rope
+          then
+            let attr = (("",name),content.rope) in
+            let rope = with_attr rope attr in
+            run stack [] { b with rope } (source acc)
+          else run stack seq b (source acc)
+        | seq ->
+          run stack seq b (source acc)
+      end
+
     | "seq" -> run (XmlStack.push stack) seq b (source acc)
+
     | "let" ->
       let seq = rtrim seq in
       let name = get_attr "let" attrs "name" in
       let acc, letb = run [0,[]] [] { b with rope = empty } (source acc) in
       let b = { b with bindings = declare [name] letb.rope bindings } in
       run (XmlStack.save_bindings bindings stack) seq b (source acc)
+
     | el ->
       raise (Error (`Unknown_tag el))
   ) in
   fun acc ->
     run [1,[]] [] empty_blueprint (source acc)
-
-let xml_source xml_input =
-  xml_input, if Xmlm.eoi xml_input then None else Some (Xmlm.input xml_input)
-
-let bind ?(incomplete=false) ~sink out bindings rope =
-  let patch env prov hole =
-    match bind_hole env hole with
-    | None when incomplete -> env, Rope.hole prov hole
-    | None -> raise (Error (`Empty_hole (Hole.name hole)))
-    | Some t -> (Bindings.append hole.Hole.env env, t)
-  in
-  Rope.to_stream ~patch ~sink bindings out rope

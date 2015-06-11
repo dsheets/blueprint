@@ -29,12 +29,15 @@ module type S = sig
   type prov
   type t
   type 'a patch = 'a -> prov -> hole -> 'a * t
+  type 'a sink = prov -> 'a -> Xmlm.signal list -> 'a
 
   val of_list : prov:prov -> Xmlm.signal list -> t
 
-  val wrap : prov:prov -> Xmlm.signal deque -> t -> Xmlm.signal deque -> t
+  val make_hole : prov:prov -> hole -> t
 
-  val hole : prov:prov -> hole -> t
+  val make_attrs : prov:prov -> Xmlm.tag -> (Xmlm.name * t) list -> t
+  val in_attrs : t -> bool
+  val with_attr : t -> Xmlm.name * t -> t
 
   val concat : t -> t -> t
   val ( ++ ) : t -> t -> t
@@ -51,8 +54,7 @@ module type S = sig
 
   val patch : 'a patch -> 'a -> t -> t
 
-  val to_stream :
-    patch:'a patch -> sink:(prov -> 'out -> Xmlm.signal list -> 'out) -> 'a ->
+  val to_stream : patch:'a patch -> sink:'out sink -> 'a ->
     'out -> t -> 'out
 
   val to_list : patch:'a patch -> 'a -> t -> Xmlm.signal list
@@ -66,18 +68,29 @@ struct
   (* TODO: could include indexes for fast traversal/lookup *)
   type t =
     | Literal of M.prov * Xmlm.signal deque
-    | Wrap of M.prov * Xmlm.signal deque * t * Xmlm.signal deque
     | Hole of M.prov * M.hole
+    | Attrs of M.prov * Xmlm.tag * (Xmlm.name * t) list
     | Sequence of t deque
 
   type 'a patch = 'a -> prov -> hole -> 'a * t
 
+  type 'a sink = prov -> 'a -> Xmlm.signal list -> 'a
+
   let of_list ~prov list = Literal (prov, (list,[]))
 
-  (* TODO: could optimize if prov = prov' *)
-  let wrap ~prov start v fin = Wrap (prov, start, v, fin)
-
-  let hole ~prov hole = Hole (prov, hole)
+  let make_hole ~prov hole = Hole (prov, hole)
+  let make_attrs ~prov tag attrs = Attrs (prov, tag, attrs)
+  let rec in_attrs = function
+    | Literal (_,_) | Hole (_,_) | Sequence ([],[]) -> false
+    | Attrs (_,_,_) -> true
+    | Sequence (_,rope::_) -> in_attrs rope
+    | Sequence (fropes,[]) -> in_attrs (Sequence ([],List.rev fropes))
+  let rec with_attr rope attr = match rope with
+    | Literal (_,_) | Hole (_,_) | Sequence ([],[]) -> rope
+    | Attrs (prov, tag, attrs) -> Attrs (prov, tag, attr::attrs)
+    | Sequence (fropes,rope::rropes) ->
+      Sequence (fropes, (with_attr rope attr)::rropes)
+    | Sequence (fropes,[]) -> with_attr (Sequence ([],List.rev fropes)) attr
 
   (* TODO: could optimize if prov = prov' *)
   let concat a b = match a, b with
@@ -104,18 +117,19 @@ struct
     let rec aux acc = function
       | Literal (_,_) -> acc
       | Hole (_, hole) -> hole::acc
-      | Wrap (_, _, r, _) -> aux acc r
+      | Attrs (_, _, ropes) -> List.fold_left (fun acc (_name, rope) ->
+        aux acc rope
+      ) acc ropes
       | Sequence (fropes, rropes) ->
         List.(fold_left aux (fold_left aux acc fropes) (rev rropes))
     in
     List.rev (aux [] rope)
 
   (* TODO: should use something other than Hashtbl? *)
-  (* TODO: should also optimize? *)
+  (* TODO: should also optimize rope? *)
   let patch f acc rope =
     let rec aux ((acc,tbl) as c) = function
       | Literal (_,_) as r -> r
-      | Wrap (prov,l,v,r) -> Wrap (prov,l,aux c v,r)
       | Sequence (fropes,rropes) ->
         Sequence (List.map (aux c) fropes, List.map (aux c) rropes)
       | Hole (prov, hole) as h ->
@@ -126,34 +140,57 @@ struct
           let tbl = Hashtbl.copy tbl in
           Hashtbl.replace tbl t ();
           aux (acc,tbl) t
+      | Attrs (prov, tag, ropes) ->
+        Attrs (prov, tag,
+               List.map (fun (name,rope) -> (name, aux c rope)) ropes)
     in
     let tbl = Hashtbl.create 8 in
     Hashtbl.replace tbl rope ();
     aux (acc,tbl) rope
 
-  (* TODO: should use patch? *)
-  let rec to_stream ~patch ~sink =
-    let rec aux ((acc,tbl) as c) out = function
-      | Literal (prov, (fs,rs)) -> sink prov (sink prov out fs) (List.rev rs)
-      | Hole (prov, h) ->
-        let acc, rope = patch acc prov h in
-        if Hashtbl.mem tbl rope
-        then sink prov out (M.signals_of_hole prov h)
-        else
-          let tbl = Hashtbl.copy tbl in
-          Hashtbl.replace tbl rope ();
-          aux (acc,tbl) out rope
-      | Wrap (prov, (fs,rs), v, (fs',rs')) ->
-        let out = sink prov (sink prov out fs) (List.rev rs) in
-        let out = aux c out v in
-        sink prov (sink prov out fs') (List.rev rs')
-      | Sequence (fropes, rropes) ->
-        List.(fold_left (aux c) (fold_left (aux c) out fropes) (rev rropes))
+  (* A sink building a buffer without tags *)
+  let rec drop_tag prov buf = function
+    | [] -> buf
+    | (`Dtd _ | `El_start (_,_) | `El_end)::r -> drop_tag prov buf r
+    | (`Data s)::r -> Buffer.add_string buf s; drop_tag prov buf r
+
+  let set_attr attrs attr value =
+    let rec loop acc = function
+      | [] -> List.rev ((attr,value)::acc)
+      | (a,_)::r when a = attr -> List.rev_append acc ((attr,value)::r)
+      | h::r -> loop (h::acc) r
     in
-    fun acc out rope ->
+    loop [] attrs
+
+  (* TODO: should use patch? *)
+  let rec to_stream
+    : 'out. patch:_ -> sink:'out sink -> _ -> 'out -> _ -> 'out = fun ~patch ->
+    let rec aux : 'a. _ -> 'a sink -> 'a -> _ -> 'a =
+      fun ((acc,tbl) as c) sink out -> function
+        | Literal (prov, (fs,rs)) -> sink prov (sink prov out fs) (List.rev rs)
+        | Hole (prov, h) ->
+          let acc, rope = patch acc prov h in
+          if Hashtbl.mem tbl rope
+          then sink prov out (M.signals_of_hole prov h)
+          else
+            let tbl = Hashtbl.copy tbl in
+            Hashtbl.replace tbl rope ();
+            aux (acc,tbl) sink out rope
+        | Sequence (fropes, rropes) ->
+          List.(fold_left (aux c sink)
+                  (fold_left (aux c sink) out fropes)
+                  (rev rropes))
+        | Attrs (prov, (el,attrs), ropes) ->
+          sink prov out [`El_start (el,List.fold_left (fun attrs (name,rope) ->
+            let buf = Buffer.create 16 in
+            let buf = aux c drop_tag buf rope in
+            set_attr attrs name (Buffer.contents buf)
+          ) attrs (List.rev ropes))]
+    in
+    fun ~sink acc out rope ->
       let tbl = Hashtbl.create 8 in
       Hashtbl.replace tbl rope ();
-      aux (acc, tbl) out rope
+      aux (acc, tbl) sink out rope
 
   let to_list ~patch acc rope =
     let sink _ acc s = List.rev_append s acc in

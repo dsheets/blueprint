@@ -29,6 +29,8 @@ type prov = Stream of string | File of string
 
 val xmlns : string
 
+val xmlns_map_default : string -> string option
+
 val error_message : error -> string
 
 module HoleMap : Map.S

@@ -1,0 +1,5 @@
+<t:insert name="missing">
+  <html>
+    <body>Default page</body>
+  </html>
+</t:insert>

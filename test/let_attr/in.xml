@@ -1,0 +1,8 @@
+<html>
+  <t:let name="class">
+    <t:attr name="class">main</t:attr>
+  </t:let>
+  <body>
+    <t:insert name="class"/>
+  </body>
+</html>

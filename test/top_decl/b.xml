@@ -1,0 +1,5 @@
+<html>
+  <body>
+    <p><t:insert name="a"/></p>
+  </body>
+</html>

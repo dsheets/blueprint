@@ -1,0 +1,5 @@
+<html>
+  <body>
+    <t:attr name="class"><b>bold</b> and <i>italic</i></t:attr>
+  </body>
+</html>

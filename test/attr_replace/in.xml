@@ -1,0 +1,5 @@
+<html>
+  <body class="content" id="main" onload="run()">
+    <t:attr name="id">body</t:attr>
+  </body>
+</html>

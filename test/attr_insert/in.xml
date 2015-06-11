@@ -1,0 +1,6 @@
+<html>
+  <t:let name="body_class">main</t:let>
+  <body>
+    <t:attr name='class'><t:insert name="body_class"/></t:attr>
+  </body>
+</html>

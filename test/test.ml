@@ -136,6 +136,7 @@ Alcotest.run "blue" [
   ];
 
   "Composition", success_tests [
+    "top_decl";
     "top_seq_binder";
     "compose2";
     "compose3";
@@ -152,6 +153,24 @@ Alcotest.run "blue" [
     "override_default";
     "default_open";
     "default_closure";
+    "top_insert";
+  ];
+
+  "Attributes", success_tests [
+    "attr_add";
+    "attr_replace";
+    "attr_ignore";
+    "attr_empty";
+    "attr_multi";
+    "attr_seq";
+    "seq_attr";
+    "attr_insert";
+    "insert_attr";
+    "let_attr";
+    "attr_format";
+    "attr_tags";
+    "attr_compose";
+    "top_attr";
   ];
 
   "Error", tests [
@@ -168,6 +187,8 @@ Alcotest.run "blue" [
     "bad_compose_scope", incomplete;
     "compose3_rec", incomplete;
     "default_empty_insert", incomplete;
+    "bad_attr_name", error;
+    "attr_open", incomplete;
   ];
 
   "Trouble", tests [
