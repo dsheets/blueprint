@@ -1,0 +1,2 @@
+blue: in.xml: template error:
+The hole name 'foo,bar' is invalid

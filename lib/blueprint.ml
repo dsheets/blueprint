@@ -21,6 +21,7 @@
 (* TODO: these should carry the location of the error and source *)
 type error = [
   | `Empty_hole of string
+  | `Bad_hole_name of string
   | `Unknown_tag of string
   | `Missing_attribute of string * string
   | `Data_after_root
@@ -35,6 +36,7 @@ let xmlns_map_default ns = if ns = xmlns then Some "t" else None
 
 let error_message : error -> string = function
   | `Empty_hole name -> "No value for hole named '"^name^"'"
+  | `Bad_hole_name name -> "The hole name '"^name^"' is invalid"
   | `Unknown_tag tag -> "Unknown tag '"^tag^"'"
   | `Missing_attribute (tag,attr) ->
     "Tag '"^tag^"' is missing attribute '"^attr^"'"
@@ -233,6 +235,14 @@ let default_hole = Hole.(function
   | { default = None }                   -> None
 )
 
+let is_ident s =
+  let good = ref true in
+  String.iter (function
+    | 'a'..'z' | 'A'..'Z' | '0'..'9' | '-' | '_' -> ()
+    | _ -> good := false
+  ) s;
+  !good
+
 let bind_hole bindings hole =
   match Bindings.get bindings [Hole.name hole] with
   | Some t -> Some t
@@ -293,6 +303,7 @@ let of_stream ~prov ~source =
     | "insert" ->
       let literal = of_list ~prov (List.rev seq) in
       let name = get_attr "insert" attrs "name" in
+      if not (is_ident name) then raise (Error (`Bad_hole_name name));
       begin match Bindings.get bindings [name] with
         | Some template ->
           let template = patch (fun env prov hole ->

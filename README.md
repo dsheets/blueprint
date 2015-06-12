@@ -37,6 +37,8 @@ If content is supplied to a `t:insert` element, it will be used as the
 default value of the hole in the case that no binding matching `@name`
 exists in scope.
 
+Names may only contain alphanumeric characters, '-', and '_'.
+
 ### `t:let`
 
 `t:let` has a single required attribute, `name`, which gives a name to

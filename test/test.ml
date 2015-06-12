@@ -180,6 +180,7 @@ Alcotest.run "blue" [
     "bad_decl_scope", incomplete;
     "bad_insert_name", error;
     "bad_let_name", error;
+    "bad_ident_comma", error;
     "top_seq_multi", error;
     "decl_rec", incomplete;
     "decl_mutual_rec", incomplete;

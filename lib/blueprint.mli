@@ -17,6 +17,7 @@
 
 type error = [
   | `Empty_hole of string
+  | `Bad_hole_name of string
   | `Unknown_tag of string
   | `Missing_attribute of string * string
   | `Data_after_root
