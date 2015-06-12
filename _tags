@@ -1,6 +1,6 @@
-<cli/*>: package(cmdliner),package(unix),package(xmlm)
-<lib/*>: package(xmlm)
-<unix/*>: package(xmlm)
+<cli/*>: package(cmdliner),package(unix),package(xmlm),package(stringext)
+<lib/*>: package(xmlm),package(stringext)
+<unix/*>: package(xmlm),package(stringext)
 true: debug, annot, bin_annot, principal, safe_string
 true: strict_sequence
 true: warn(@5@8@10@11@12@14@23@24@26@29)

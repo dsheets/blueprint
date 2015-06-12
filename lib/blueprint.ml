@@ -21,7 +21,7 @@
 (* TODO: these should carry the location of the error and source *)
 type error = [
   | `Empty_hole of string
-  | `Bad_hole_name of string
+  | `Bad_ident of string
   | `Unknown_tag of string
   | `Missing_attribute of string * string
   | `Data_after_root
@@ -36,7 +36,7 @@ let xmlns_map_default ns = if ns = xmlns then Some "t" else None
 
 let error_message : error -> string = function
   | `Empty_hole name -> "No value for hole named '"^name^"'"
-  | `Bad_hole_name name -> "The hole name '"^name^"' is invalid"
+  | `Bad_ident name -> "The identifier '"^name^"' is invalid"
   | `Unknown_tag tag -> "Unknown tag '"^tag^"'"
   | `Missing_attribute (tag,attr) ->
     "Tag '"^tag^"' is missing attribute '"^attr^"'"
@@ -106,7 +106,7 @@ end
 
 module Hole = struct
   type ('rope, 'value) t = {
-    name : string;
+    name : string list;
     default : 'value option;
     env : 'rope Bindings.t;
   }
@@ -137,7 +137,8 @@ module rec Template :
 
   (* TODO: defaults, closure bindings? *)
   let signals_of_hole _prov = Hole.(function
-    | { name } -> [
+    | { name } ->
+      let name = String.concat "." name in [
         `El_start ((xmlns,"insert"),[("","name"),name]); `El_end;
       ]
   )
@@ -235,16 +236,23 @@ let default_hole = Hole.(function
   | { default = None }                   -> None
 )
 
-let is_ident s =
-  let good = ref true in
-  String.iter (function
-    | 'a'..'z' | 'A'..'Z' | '0'..'9' | '-' | '_' -> ()
-    | _ -> good := false
-  ) s;
-  !good
+module Ident = struct
+  let is_valid s =
+    try
+      String.iter (function
+        | 'a'..'z' | 'A'..'Z' | '0'..'9' | '-' | '_' -> ()
+        | _ -> raise Not_found
+      ) s;
+      true
+    with Not_found -> false
+
+  let of_string s =
+    if not (is_valid s) then raise (Error (`Bad_ident s));
+    Stringext.split ~on:'.' s
+end
 
 let bind_hole bindings hole =
-  match Bindings.get bindings [Hole.name hole] with
+  match Bindings.get bindings (Hole.name hole) with
   | Some t -> Some t
   | None -> default_hole hole
 
@@ -255,7 +263,7 @@ let bind ?(incomplete=false) ~sink out bindings rope =
   let patch env prov hole =
     match bind_hole env hole with
     | None when incomplete -> env, Rope.make_hole prov hole
-    | None -> raise (Error (`Empty_hole (Hole.name hole)))
+    | None -> raise (Error (`Empty_hole (String.concat "." (Hole.name hole))))
     | Some t -> (Bindings.append hole.Hole.env env, t)
   in
   Rope.to_stream ~patch ~sink bindings out rope
@@ -302,9 +310,8 @@ let of_stream ~prov ~source =
   and handle stack seq ({ rope; bindings } as b) acc attrs = Rope.(function
     | "insert" ->
       let literal = of_list ~prov (List.rev seq) in
-      let name = get_attr "insert" attrs "name" in
-      if not (is_ident name) then raise (Error (`Bad_hole_name name));
-      begin match Bindings.get bindings [name] with
+      let name = Ident.of_string (get_attr "insert" attrs "name") in
+      begin match Bindings.get bindings name with
         | Some template ->
           let template = patch (fun env prov hole ->
             match bind_hole env hole with

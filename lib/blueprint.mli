@@ -17,7 +17,7 @@
 
 type error = [
   | `Empty_hole of string
-  | `Bad_hole_name of string
+  | `Bad_ident of string
   | `Unknown_tag of string
   | `Missing_attribute of string * string
   | `Data_after_root
@@ -50,12 +50,7 @@ module Bindings : sig
 end
 
 module Hole : sig
-  (* TODO: expose? *)
-  type ('rope, 'value) t = {
-    name : string;
-    default : 'value option;
-    env : 'rope Bindings.t;
-  }
+  type ('rope, 'value) t
 end
 
 type 'a valued = Default of 'a | Typed of string * 'a

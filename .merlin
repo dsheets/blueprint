@@ -1,5 +1,6 @@
 PKG cmdliner
 PKG xmlm
+PKG stringext
 
 S lib
 S unix
