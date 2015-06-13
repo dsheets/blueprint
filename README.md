@@ -1,6 +1,6 @@
 # blueprint
 
-**blueprint** is an XML (or polyglot HTML) template system. It's a
+**blueprint** is a polyglot HTML (or XML) template system. It's a
   command and a MirageOS-compatible OCaml library.
 
 To use **blueprint** from the command line, just
@@ -14,15 +14,23 @@ and the templates will be composed with the result sent to stdout.
 ## Template language
 
 The blueprint template language is an XML vocabulary that lets you place
-'holes' in XML (or polyglot HTML) documents. The `blue` command line
+'holes' in polyglot HTML (or XML) documents. The `blue` command line
 tool automatically binds the blueprint namespace to the `t:`
-prefix. Blueprint has 3 tags: *seq*, *insert*, and *let*.
+prefix. Blueprint has 4 tags: *seq*, *insert*, *let*, and *attr*.
 
 ### `t:seq`
 
 `t:seq` is used to group elements together. It is most useful at the
 root of a document in order to describe a sequence of elements or to
 declare document-level bindings.
+
+### `t:let`
+
+`t:let` has a single required attribute, `name`, which gives a name to
+the binding that it creates. Bindings are scoped from the point of
+declaration until the end of the parent element. If the parent element
+is `t:seq`, the binding will be exported as well. Whitespace before a
+`t:let` is elided up to one or two consecutive new lines.
 
 ### `t:insert`
 
@@ -39,13 +47,15 @@ exists in scope.
 
 Names may only contain alphanumeric characters, '-', and '_'.
 
-### `t:let`
+### `t:attr`
 
-`t:let` has a single required attribute, `name`, which gives a name to
-the binding that it creates. Bindings are scoped from the point of
-declaration until the end of the parent element. If the parent element
-is `t:seq`, the binding will be exported as well. Whitespace before a
-`t:let` is elided up to one or two consecutive new lines.
+`t:attr` has a single required attribute, `name`, which is the name of
+the attribute to populate. `t:attr` is ignored if it does not
+immediately follow a start tag or another `t:attr` excluding
+whitespace. If the attribute `@name` already exists, it is replaced with
+the content of `t:attr`. `t:attr` may contain any content including
+`t:let`, `t:insert`, and `t:seq` but, after recursive binding, all tags
+in the attribute value will be dropped.
 
 ## `blue`
 
