@@ -20,6 +20,7 @@ type error = [
   | `Bad_ident of string
   | `Unknown_tag of string
   | `Missing_attribute of string * string
+  | `Floating_attr of string
   | `Data_after_root
   | `Element_after_root
 ]

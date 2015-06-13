@@ -1,0 +1,2 @@
+blue: in.xml: template error:
+The attribute 'impossible' is not attached to a start tag

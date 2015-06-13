@@ -1,2 +1,2 @@
 blue: in.xml: template error:
-tags are not allowed after the root element
+Tags are not allowed after the root element

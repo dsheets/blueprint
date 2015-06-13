@@ -159,18 +159,14 @@ Alcotest.run "blue" [
   "Attributes", success_tests [
     "attr_add";
     "attr_replace";
-    "attr_ignore";
     "attr_empty";
     "attr_multi";
     "attr_seq";
     "seq_attr";
     "attr_insert";
-    "insert_attr";
-    "let_attr";
     "attr_format";
     "attr_tags";
     "attr_compose";
-    "top_attr";
   ];
 
   "Namespace", success_tests [
@@ -209,6 +205,10 @@ Alcotest.run "blue" [
     "default_empty_insert", incomplete;
     "bad_attr_name", error;
     "attr_open", incomplete;
+    "attr_floating", error;
+    "insert_attr", error;
+    "let_attr", error;
+    "top_attr", error;
   ];
 
   "Trouble", tests [

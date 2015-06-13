@@ -50,12 +50,12 @@ Names may only contain alphanumeric characters, '-', and '_'.
 ### `t:attr`
 
 `t:attr` has a single required attribute, `name`, which is the name of
-the attribute to populate. `t:attr` is ignored if it does not
-immediately follow a start tag or another `t:attr` excluding
-whitespace. If the attribute `@name` already exists, it is replaced with
-the content of `t:attr`. `t:attr` may contain any content including
-`t:let`, `t:insert`, and `t:seq` but, after recursive binding, all tags
-in the attribute value will be dropped.
+the attribute to populate. `t:attr` may only immediately follow a start
+tag or another `t:attr` excluding whitespace. If the attribute `@name`
+already exists, it is replaced with the content of `t:attr`. `t:attr`
+may contain any content including `t:let`, `t:insert`, and `t:seq` but,
+after recursive binding, all tags in the attribute value will be
+dropped.
 
 ## `blue`
 

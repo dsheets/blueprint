@@ -24,6 +24,7 @@ type error = [
   | `Bad_ident of string
   | `Unknown_tag of string
   | `Missing_attribute of string * string
+  | `Floating_attr of string
   | `Data_after_root
   | `Element_after_root
 ]
@@ -40,8 +41,10 @@ let error_message : error -> string = function
   | `Unknown_tag tag -> "Unknown tag '"^tag^"'"
   | `Missing_attribute (tag,attr) ->
     "Tag '"^tag^"' is missing attribute '"^attr^"'"
-  | `Data_after_root -> "data are not allowed after the root element"
-  | `Element_after_root -> "tags are not allowed after the root element"
+  | `Floating_attr attr ->
+    "The attribute '"^attr^"' is not attached to a start tag"
+  | `Data_after_root -> "Data are not allowed after the root element"
+  | `Element_after_root -> "Tags are not allowed after the root element"
 
 let rec compare_string_list sl sl' = match sl, sl' with
   | [], [] -> 0
@@ -361,23 +364,19 @@ let of_stream ~prov ~source =
       let name = get_attr "attr" attrs "name" in
       let content = { b with rope = None } in
       let acc, content = run [0,[]] [] ctxt content (source acc) in
-      begin match rtrim_all seq with
+      let rope = match rtrim_all seq with
         | (`El_start (tag,attrs))::r ->
           let literal = of_list ~prov (List.rev r) in
           let attr = (("",name), default_rope content.rope) in
-          let rope = rope +? literal ++ (make_attrs ~prov (tag,attrs) [attr]) in
-          run stack [] ctxt (with_rope b rope) (source acc)
-        | [] ->
-          begin match rope with
-            | Some rope when in_attrs rope ->
-              let attr = (("",name), default_rope content.rope) in
-              let rope = with_attr rope attr in
-              run stack [] ctxt (with_rope b rope) (source acc)
-            | Some _ | None -> run stack seq ctxt b (source acc)
-          end
-        | seq ->
-          run stack seq ctxt b (source acc)
-      end
+          rope +? literal ++ (make_attrs ~prov (tag,attrs) [attr])
+        | _::_ -> raise (Error (`Floating_attr name))
+        | [] -> match rope with
+          | Some rope when in_attrs rope ->
+            let attr = (("",name), default_rope content.rope) in
+            with_attr rope attr
+          | Some _ | None -> raise (Error (`Floating_attr name))
+      in
+      run stack [] ctxt (with_rope b rope) (source acc)
 
     | "seq" -> run (XmlStack.push stack) seq ctxt b (source acc)
 
