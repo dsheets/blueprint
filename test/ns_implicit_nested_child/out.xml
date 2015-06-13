@@ -1,0 +1,10 @@
+<html>
+  <body>
+    
+    <p>
+      [foo.bar]
+    </p>
+  
+    <p>No foo.bar</p>
+  </body>
+</html>

@@ -180,6 +180,7 @@ Alcotest.run "blue" [
     "ns_pundef_child_parent";
     "ns_pundef_child_compose";
     "ns_implicit_child";
+    "ns_implicit_nested_child";
     "ns_explicit_inner_child";
     "ns_explicit_pre_child";
     "ns_explicit_post_child";
