@@ -1,0 +1,10 @@
+<html>
+  <t:let name="foo">
+    <t:let name="foo.bar">[foo.bar]</t:let>
+    <t:insert name=".bar">No [.bar]</t:insert>
+  </t:let>
+  <body>
+    <p><t:insert name="foo"/></p>
+    <p><t:insert name="foo.bar">No [foo.bar]</t:insert></p>
+  </body>
+</html>

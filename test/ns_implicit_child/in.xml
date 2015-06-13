@@ -1,0 +1,8 @@
+<html>
+  <t:let name="foo">
+    <t:let name=".bar">[foo.bar]</t:let>
+  </t:let>
+  <body>
+    <p><t:insert name="foo.bar"/></p>
+  </body>
+</html>

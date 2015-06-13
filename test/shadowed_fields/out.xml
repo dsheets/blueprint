@@ -1,0 +1,13 @@
+<html>
+  <body>
+    <p>
+    [foo.bar]
+  </p>
+    <p>
+    {foo.bar}
+  </p>
+    <p>
+    [foo.bar]
+  </p>
+  </body>
+</html>

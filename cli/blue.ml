@@ -95,10 +95,11 @@ let rec compose prev_bindings incomplete = function
         Xmlm.output out `El_end
     ) s; out
     in begin
+      let template = Blueprint.(default_rope (Scope.template b)) in
       try
         (* we get our xml_out back, ignore it *)
         ignore Blueprint.(
-          bind ~incomplete ~sink xml_out prev_bindings (template b)
+          bind ~incomplete ~sink xml_out prev_bindings template
         )
       with
       | Blueprint.Error err -> fatal_blueprint_error file err
@@ -107,8 +108,8 @@ let rec compose prev_bindings incomplete = function
     `Ok ()
   | file::files ->
     (* template is ignored in all but the last file *)
-    let bindings = Blueprint.bindings (read_blueprint file) in
-    compose (Blueprint.Bindings.append bindings prev_bindings) incomplete files
+    let bindings = Blueprint.Scope.scope (read_blueprint file) in
+    compose (Blueprint.Scope.shadow bindings prev_bindings) incomplete files
 
 let compose_cmd =
   let doc = "templates to compose, use '-' to read from stdin" in
@@ -122,7 +123,7 @@ let compose_cmd =
   ]
   in
   Term.(
-    ret (pure (compose Blueprint.Bindings.empty) $ incomplete $ templates),
+    ret (pure (compose Blueprint.Scope.empty) $ incomplete $ templates),
     info exec_name ~version ~man
   )
 

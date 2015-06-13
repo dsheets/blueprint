@@ -41,6 +41,7 @@ module type S = sig
 
   val concat : t -> t -> t
   val ( ++ ) : t -> t -> t
+  val ( +? ) : t option -> t -> t
 
   val empty : t
 
@@ -99,6 +100,7 @@ struct
     | atom, atom' -> Sequence ([atom; atom'], [])
 
   let (++) = concat
+  let (+?) lhs rhs = match lhs with None -> rhs | Some lhs -> lhs ++ rhs
 
   let empty = Sequence ([],[])
 

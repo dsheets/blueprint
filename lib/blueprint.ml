@@ -51,64 +51,113 @@ let rec compare_string_list sl sl' = match sl, sl' with
     | 0 -> compare t t'
     | x -> x
 
-(* TODO: Maybe these should just be string/name based. *)
-module HoleMap = Map.Make(struct
+module Ident = struct
   type t = string list
+
+  let is_valid s =
+    try
+      String.iter (function
+        | 'a'..'z' | 'A'..'Z' | '0'..'9' | '-' | '_' -> ()
+        | _ -> raise Not_found
+      ) s;
+      true
+    with Not_found -> false
+
+  let of_string ctxt s =
+    let ident = Stringext.split ~on:'.' s in
+    if List.for_all is_valid ident
+    then match ident with
+      | ""::rest -> ctxt @ rest
+      | _ -> ident
+    else raise (Error (`Bad_ident s))
+
   let compare = compare_string_list
-end)
+end
 
-module HoleTable = Hashtbl.Make(struct
-  type t = string list
-  let equal a b = compare_string_list a b = 0
-  let hash = Hashtbl.hash
-end)
+module StringMap = Map.Make(String)
 
-module Bindings = struct
-(* TODO: This is a bit weird... *)
-  type 'rope t =
-    | Generator of (string list -> 'rope option) * 'rope t option
-    | Map of 'rope HoleMap.t * 'rope t option
-    | Table of 'rope HoleTable.t * 'rope t option
+module Scope = struct
 
-  let empty = Map (HoleMap.empty, None)
+  type 'rope t = {
+    map : 'rope obj StringMap.t;
+    gen : (Ident.t -> 'rope obj option) option;
+  }
+  and 'rope obj = {
+    rope : 'rope option;
+    children : 'rope t;
+  }
 
-  (* TODO: this is horrible *)
-  let rec append a b = match a with
-    | Generator (f,None) -> Generator (f,Some b)
-    | Generator (f,Some bs) -> Generator (f,Some (append bs b))
-    | Map (m,None) -> Map (m,Some b)
-    | Map (m,Some bs) -> Map (m,Some (append bs b))
-    | Table (t,None) -> Table (t,Some b)
-    | Table (t,Some bs) -> Table (t, Some (append bs b))
+  let empty = { map = StringMap.empty; gen = None; }
+  let empty_obj = { rope = None; children = empty }
 
-  (* TODO: also horrible *)
-  let rec get bindings name = match bindings with
-    | Generator (g, more) -> begin
-        match g name with
-        | Some t -> Some t
-        | None -> match more with
-          | Some bindings -> get bindings name
+  let template { rope } = rope
+  let scope { children } = children
+
+  let with_rope obj rope = { obj with rope = Some rope }
+
+  let rec shadow a b = {
+    map = StringMap.merge (fun _name ao bo -> match ao, bo with
+      | None, None -> None
+      | Some _, None -> ao
+      | None, Some _ -> bo
+      | Some a, Some b -> Some {
+        rope = a.rope;
+        children = shadow a.children b.children;
+      }
+    ) a.map b.map;
+    gen = match b.gen with
+      | None -> a.gen
+      | Some bgen -> match a.gen with
+        | None -> Some bgen
+        | Some agen -> Some (fun ident ->
+          match agen ident with None -> bgen ident | (Some _) as o -> o
+        )
+  }
+
+  let get bindings ident =
+    let rec aux obj { map; gen } = function
+      | [] -> obj
+      | (name::rest) as ident ->
+        match try Some (StringMap.find name map) with Not_found -> None with
+        | Some obj -> aux (Some obj) obj.children rest
+        | None -> match gen with
           | None -> None
-      end
-    | Map (map, more) -> begin
-        try Some (HoleMap.find name map)
-        with Not_found -> match more with
-          | Some bindings -> get bindings name
-          | None -> None
-      end
-    | Table (tbl, more) -> begin
-        try Some (HoleTable.find tbl name)
-        with Not_found -> match more with
-          | Some bindings -> get bindings name
-          | None -> None
-      end
+          | Some gen -> gen ident
+    in
+    aux None bindings ident
+
+  let get_obj bindings ident = match get bindings ident with
+    | Some obj -> obj
+    | None -> empty_obj
+
+  let rec apply bindings f = function
+    | [] -> bindings
+    | [name] as ident ->
+      let obj = f bindings ident in
+      let map = StringMap.add name obj bindings.map in
+      { bindings with map }
+    | name::rest ->
+      let obj = get_obj bindings [name] in
+      let obj = { obj with children = apply obj.children f rest } in
+      let map = StringMap.add name obj bindings.map in
+      { bindings with map }
+
+  let put bindings ident obj =
+    apply bindings (fun _ _ -> obj) ident
+
+  let declare bindings ident rope =
+    apply bindings (fun bindings ident ->
+      let obj = get_obj bindings ident in
+      { obj with rope = Some rope }
+    ) ident
+
 end
 
 module Hole = struct
   type ('rope, 'value) t = {
-    name : string list;
+    name : Ident.t;
     default : 'value option;
-    env : 'rope Bindings.t;
+    env : 'rope Scope.t;
   }
 
   let name { name } = name
@@ -148,24 +197,21 @@ and Rope : XmlRope.S
    and type prov = Template.prov
   = XmlRope.Make(Template)
 
-type t = {
-  rope : Rope.t;
-  bindings : Rope.t Bindings.t;
-}
+type t = Rope.t Scope.obj
 
-let template { rope } = rope
-let bindings { bindings } = bindings
+let get_rope bindings ident = Scope.(match get bindings ident with
+  | Some { rope = Some rope } -> Some rope
+  | Some { rope = None } | None -> None
+)
 
-(* TODO: match? *)
-let declare name rope bindings =
-  Bindings.Map (HoleMap.singleton name rope, Some bindings)
+let default_rope = function None -> Rope.empty | Some rope -> rope
 
 let get_attr tag attrs attr =
   try List.assoc ("",attr) attrs
   with Not_found -> raise (Error (`Missing_attribute (tag, attr)))
 
 module XmlStack = struct
-  type frame = int * (int * Rope.t Bindings.t) list
+  type frame = int * (int * Rope.t Scope.t) list
   type t = frame list
 
   let consumep = function (0,_)::_ -> true | [] | _::_ -> false
@@ -228,7 +274,7 @@ let rtrim = function
     else r
   | s -> s
 
-let empty_blueprint = { rope = Rope.empty; bindings = Bindings.empty }
+let empty_blueprint = Scope.empty_obj
 
 let default_hole = Hole.(function
   | { default = Some (Default rope) }    -> Some rope
@@ -236,23 +282,7 @@ let default_hole = Hole.(function
   | { default = None }                   -> None
 )
 
-module Ident = struct
-  let is_valid s =
-    try
-      String.iter (function
-        | 'a'..'z' | 'A'..'Z' | '0'..'9' | '-' | '_' -> ()
-        | _ -> raise Not_found
-      ) s;
-      true
-    with Not_found -> false
-
-  let of_string s =
-    if not (is_valid s) then raise (Error (`Bad_ident s));
-    Stringext.split ~on:'.' s
-end
-
-let bind_hole bindings hole =
-  match Bindings.get bindings (Hole.name hole) with
+let bind_hole bindings hole = match get_rope bindings (Hole.name hole) with
   | Some t -> Some t
   | None -> default_hole hole
 
@@ -264,7 +294,7 @@ let bind ?(incomplete=false) ~sink out bindings rope =
     match bind_hole env hole with
     | None when incomplete -> env, Rope.make_hole prov hole
     | None -> raise (Error (`Empty_hole (String.concat "." (Hole.name hole))))
-    | Some t -> (Bindings.append hole.Hole.env env, t)
+    | Some t -> (Scope.shadow hole.Hole.env env, t)
   in
   Rope.to_stream ~patch ~sink bindings out rope
 
@@ -287,87 +317,95 @@ let string_of_rope rope =
 *)
 
 let of_stream ~prov ~source =
-  let rec run stack seq ({ rope; bindings } as b) = function
+  let open Scope in
+  let rec run stack seq ctxt ({ rope; children } as b) = function
     | acc, None ->
-      acc, { b with rope=Rope.(rope ++ (of_list ~prov (List.rev seq))) }
+      acc, with_rope b Rope.(rope +? (of_list ~prov (List.rev seq)))
     | acc, Some el -> match el with
       | `El_start ((ns,el),attrs) when ns=xmlns ->
-        handle stack seq b acc attrs el
+        handle stack seq ctxt b acc attrs el
       | `El_start el ->
-        run (XmlStack.incr stack) ((`El_start el)::seq) b (source acc)
+        run (XmlStack.incr stack) ((`El_start el)::seq) ctxt b (source acc)
       | `El_end when XmlStack.consumep stack ->
         begin match XmlStack.pop stack with
           | [] ->
-            acc, { b with rope=Rope.(rope ++ (of_list ~prov (List.rev seq))) }
-          | stack -> run stack seq b (source acc)
+            acc, with_rope b Rope.(rope +? (of_list ~prov (List.rev seq)))
+          | stack -> run stack seq ctxt b (source acc)
         end
       | `El_end ->
-        let stack, bindings = XmlStack.decr bindings stack in
-        run stack (`El_end::seq) { b with bindings } (source acc)
+        let stack, children = XmlStack.decr children stack in
+        run stack (`El_end::seq) ctxt { b with children } (source acc)
       | (`Dtd _ | `Data _) as signal ->
-        run stack (signal::seq) b (source acc)
+        run stack (signal::seq) ctxt b (source acc)
 
-  and handle stack seq ({ rope; bindings } as b) acc attrs = Rope.(function
+  and handle stack seq ctxt ({ rope; children } as b) acc attrs = Rope.(function
     | "insert" ->
       let literal = of_list ~prov (List.rev seq) in
-      let name = Ident.of_string (get_attr "insert" attrs "name") in
-      begin match Bindings.get bindings name with
+      let name = Ident.of_string ctxt (get_attr "insert" attrs "name") in
+      begin match get_rope children name with
+        | None -> add_hole stack seq ctxt b acc name literal
         | Some template ->
           let template = patch (fun env prov hole ->
             match bind_hole env hole with
             | None -> (env, Rope.make_hole ~prov hole)
-            | Some t -> (Bindings.append hole.Hole.env env, t)
-          ) bindings template in
+            | Some t -> (shadow hole.Hole.env env, t)
+          ) children template in
           (* Now, we throw away any default value. *)
-          let default = { b with rope = empty } in
-          let acc, _default = run [0,[]] [] default (source acc) in
-          let rope = rope ++ literal ++ template in
-          run stack [] { b with rope } (source acc)
-        | None -> match source acc with
-          | (acc, (None | Some `El_end)) as c ->
-            let hole = Hole.named name bindings in
-            let rope = rope ++ literal ++ (Rope.make_hole ~prov hole) in
-            run (XmlStack.push stack) [] { b with rope } c
-          | acc, Some signal ->
-            let default = { b with rope = empty } in
-            let acc, default = run [0,[]] [] default (acc, Some signal) in
-            let hole = Hole.valued name (Default default.rope) bindings in
-            let rope = rope ++ literal ++ (Rope.make_hole ~prov hole) in
-            run stack [] { b with rope } (source acc)
+          let default = { b with rope = None } in
+          let acc, _default = run [0,[]] [] ctxt default (source acc) in
+          let rope = rope +? literal ++ template in
+          run stack [] ctxt (with_rope b rope) (source acc)
       end
 
     | "attr" ->
       let name = get_attr "attr" attrs "name" in
-      let content = { b with rope = empty } in
-      let acc, content = run [0,[]] [] content (source acc) in
+      let content = { b with rope = None } in
+      let acc, content = run [0,[]] [] ctxt content (source acc) in
       begin match rtrim_all seq with
         | (`El_start (tag,attrs))::r ->
           let literal = of_list ~prov (List.rev r) in
-          let attr = (("",name),content.rope) in
-          let rope = rope ++ literal ++ (make_attrs ~prov (tag,attrs) [attr]) in
-          run stack [] { b with rope } (source acc)
+          let attr = (("",name), default_rope content.rope) in
+          let rope = rope +? literal ++ (make_attrs ~prov (tag,attrs) [attr]) in
+          run stack [] ctxt (with_rope b rope) (source acc)
         | [] ->
-          if in_attrs rope
-          then
-            let attr = (("",name),content.rope) in
-            let rope = with_attr rope attr in
-            run stack [] { b with rope } (source acc)
-          else run stack seq b (source acc)
+          begin match rope with
+            | Some rope when in_attrs rope ->
+              let attr = (("",name), default_rope content.rope) in
+              let rope = with_attr rope attr in
+              run stack [] ctxt (with_rope b rope) (source acc)
+            | Some _ | None -> run stack seq ctxt b (source acc)
+          end
         | seq ->
-          run stack seq b (source acc)
+          run stack seq ctxt b (source acc)
       end
 
-    | "seq" -> run (XmlStack.push stack) seq b (source acc)
+    | "seq" -> run (XmlStack.push stack) seq ctxt b (source acc)
 
     | "let" ->
       let seq = rtrim seq in
-      let name = get_attr "let" attrs "name" in
-      let acc, letb = run [0,[]] [] { b with rope = empty } (source acc) in
-      let b = { b with bindings = declare [name] letb.rope bindings } in
-      run (XmlStack.save_bindings bindings stack) seq b (source acc)
+      let name = Ident.of_string ctxt (get_attr "let" attrs "name") in
+      let acc, letb = run [0,[]] [] name { b with rope = None } (source acc) in
+      let obj = Scope.({ (get_obj letb.children name) with rope = letb.rope }) in
+      let b = { b with children = Scope.put children name obj } in
+      run (XmlStack.save_bindings children stack) seq ctxt b (source acc)
 
     | el ->
       raise (Error (`Unknown_tag el))
+  )
+
+  and add_hole stack seq ctxt ({ rope; children } as b) acc name literal = Rope.(
+    match source acc with
+    | (acc, (None | Some `El_end)) as c ->
+      let hole = Hole.named name children in
+      let rope = rope +? literal ++ (Rope.make_hole ~prov hole) in
+      run (XmlStack.push stack) [] ctxt (with_rope b rope) c
+    | acc, Some signal ->
+      let default = { b with rope = None } in
+      let acc, default = run [0,[]] [] ctxt default (acc, Some signal) in
+      let default_rope = default_rope default.rope in
+      let hole = Hole.valued name (Default default_rope) children in
+      let rope = rope +? literal ++ (Rope.make_hole ~prov hole) in
+      run stack [] ctxt (with_rope b rope) (source acc)
   ) in
   fun acc ->
-    run [1,[]] [] empty_blueprint (source acc)
+    run [1,[]] [] [] empty_blueprint (source acc)

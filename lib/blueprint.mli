@@ -34,19 +34,16 @@ val xmlns_map_default : string -> string option
 
 val error_message : error -> string
 
-module HoleMap : Map.S
-
-module HoleTable : Hashtbl.S
-
-module Bindings : sig
-  (* TODO: shouldn't expose? *)
-  type 'rope t =
-    | Generator of (string list -> 'rope option) * 'rope t option
-    | Map of 'rope HoleMap.t * 'rope t option
-    | Table of 'rope HoleTable.t * 'rope t option
+module Scope : sig
+  type 'rope t
+  type 'rope obj
 
   val empty : 'a t
-  val append : 'a t -> 'a t -> 'a t
+  val shadow : 'a t -> 'a t -> 'a t
+
+  val template : 'rope obj -> 'rope option
+  val scope    : 'rope obj -> 'rope t
+
 end
 
 module Hole : sig
@@ -61,20 +58,18 @@ module rec Template :
 and Rope : XmlRope.S with
   type hole = Template.hole and type prov = Template.prov
 
-type t
+type t = Rope.t Scope.obj
 
-val template : t -> Rope.t
-
-val bindings : t -> Rope.t Bindings.t
+val default_rope : Rope.t option -> Rope.t
 
 val of_stream :
   prov:prov -> source:('acc -> 'acc * Xmlm.signal option) -> 'acc -> 'acc * t
 
 val xml_source : Xmlm.input -> Xmlm.input * Xmlm.signal option
 
-val bind_hole : Rope.t Bindings.t -> Template.hole -> Rope.t option
+val bind_hole : Rope.t Scope.t -> Template.hole -> Rope.t option
 
 val bind :
   ?incomplete:bool ->
   sink:(prov -> 'acc -> Xmlm.signal list -> 'acc) ->
-  'acc -> Rope.t Bindings.t -> Rope.t -> 'acc
+  'acc -> Rope.t Scope.t -> Rope.t -> 'acc

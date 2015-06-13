@@ -1,0 +1,7 @@
+<html>
+  <t:let name="foo.bar">[foo.bar]</t:let>
+  <body>
+    <p>foo is <t:insert name="foo">missing</t:insert></p>
+    <p>foo.bar is <t:insert name="foo.bar">missing</t:insert></p>
+  </body>
+</html>

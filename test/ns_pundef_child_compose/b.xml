@@ -1,0 +1,6 @@
+<html>
+  <t:let name="a">Annie is <t:insert name=".child"/>.</t:let>
+  <body>
+    <p><t:insert name="a"/></p>
+  </body>
+</html>

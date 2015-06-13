@@ -42,6 +42,7 @@ module type S = sig
 
   val concat : t -> t -> t
   val ( ++ ) : t -> t -> t
+  val ( +? ) : t option -> t -> t
 
   val empty : t
 

@@ -1,0 +1,12 @@
+<html>
+  <t:let name="curly">
+    <t:let name="foo">{foo.bar}: {<t:insert name=".bar"/>}</t:let>
+    <t:insert name="foo" />
+  </t:let>
+  <t:let name="foo">[foo.bar]: <t:insert name=".bar"/></t:let>
+  <t:let name="foo.bar">[foo.bar]</t:let>
+  <body>
+    <p><t:insert name="curly"/></p>
+    <p><t:insert name="foo"/></p>
+  </body>
+</html>

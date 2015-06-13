@@ -173,6 +173,24 @@ Alcotest.run "blue" [
     "top_attr";
   ];
 
+  "Namespace", success_tests [
+    "ns_root_child";
+    "ns_root_child_shadow";
+    "ns_pundef_child";
+    "ns_pundef_child_parent";
+    "ns_pundef_child_compose";
+    "ns_implicit_child";
+    "ns_explicit_inner_child";
+    "ns_explicit_pre_child";
+    "ns_explicit_post_child";
+    "scoped_fields";
+    "closed_fields";
+    "shadowed_fields";
+    "scoped_parent";
+    "closed_parent";
+    "shadowed_parent";
+  ];
+
   "Error", tests [
     "bad_xml_no_close", error;
     "self_hole", incomplete;

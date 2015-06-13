@@ -1,0 +1,8 @@
+<html>
+  <body>
+    <p>No foo.bar</p>
+    <p>
+    {foo.bar}
+  </p>
+  </body>
+</html>
