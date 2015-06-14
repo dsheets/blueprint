@@ -1,7 +1,8 @@
 # blueprint
 
-**blueprint** is a polyglot HTML (or XML) template system. It's a
-  command and a MirageOS-compatible OCaml library.
+**blueprint** is a [polyglot HTML](http://www.w3.org/TR/html-polyglot/)
+(or XML) template system. It's a command and a MirageOS-compatible OCaml
+library.
 
 To use **blueprint** from the command line, just
 
@@ -14,9 +15,10 @@ and the templates will be composed with the result sent to stdout.
 ## Template language
 
 The blueprint template language is an XML vocabulary that lets you place
-'holes' in polyglot HTML (or XML) documents. The `blue` command line
-tool automatically binds the blueprint namespace to the `t:`
-prefix. Blueprint has 4 tags: *seq*, *insert*, *let*, and *attr*.
+'holes' in [polyglot HTML](http://www.w3.org/TR/html-polyglot/) (or XML)
+documents. The `blue` command line tool automatically binds the
+blueprint namespace to the `t:` prefix. Blueprint has 4 tags: *seq*,
+*insert*, *let*, and *attr*.
 
 ### `t:seq`
 
