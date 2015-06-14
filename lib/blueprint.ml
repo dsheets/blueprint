@@ -185,16 +185,16 @@ let bind_hole bindings hole = match get_rope bindings (Hole.name hole) with
   | Some t -> Some t
   | None -> hole.Hole.default
 
-let rec patch_hole ~incomplete make_hole patch env prov hole = Hole.(
+let rec patch_hole ~partial make_hole patch env prov hole = Hole.(
   match get_rope env (name hole) with
   | Some t -> (Scope.shadow hole.env env, t)
   | None -> match hole.default with
-    | None when incomplete -> env, make_hole ~prov hole
+    | None when partial -> env, make_hole ~prov hole
     | None -> raise (Error (`Empty_hole (String.concat "." (name hole))))
     | Some t ->
       let env = Scope.shadow hole.env env in
-      let patch_hole = patch_hole ~incomplete make_hole patch in
-      if incomplete
+      let patch_hole = patch_hole ~partial make_hole patch in
+      if partial
       then (env, make_hole ~prov {
         hole with default = Some (patch patch_hole env t)
       })
@@ -217,7 +217,7 @@ module rec Template :
     match hole.default with
     | None -> [ `El_end ]
     | Some rope -> Rope.(
-      let patch = patch_hole ~incomplete:true make_hole patch in
+      let patch = patch_hole ~partial:true make_hole patch in
       let default = to_list ~patch hole.env rope in
       match default with [] -> empty_seq | _ -> default
     ) @ [ `El_end ]
@@ -305,8 +305,8 @@ let empty_blueprint = Scope.empty_obj
 let xml_source xml_input =
   xml_input, if Xmlm.eoi xml_input then None else Some (Xmlm.input xml_input)
 
-let bind ?(incomplete=false) ~sink out bindings rope =
-  let patch = patch_hole ~incomplete Rope.make_hole Rope.patch in
+let bind ?(partial=false) ~sink out bindings rope =
+  let patch = patch_hole ~partial Rope.make_hole Rope.patch in
   Rope.to_stream ~patch ~sink bindings out rope
 
 (*
@@ -323,7 +323,7 @@ let string_of_rope rope =
   Xmlm.output out (`El_start (("","x"),[]));
   Xmlm.output out (`Data "");
   suppress := false;
-  let _out = bind ~incomplete:true ~sink out Bindings.empty rope in
+  let _out = bind ~partial:true ~sink out Bindings.empty rope in
   Buffer.contents buffer
 *)
 
@@ -356,7 +356,7 @@ let of_stream ~prov ~source =
       begin match get_rope children name with
         | None -> add_hole stack seq ctxt b acc name literal
         | Some template ->
-          let patch_hole = patch_hole ~incomplete:true make_hole patch in
+          let patch_hole = patch_hole ~partial:true make_hole patch in
           let template = patch patch_hole children template in
           (*let template = patch (fun env prov hole ->
             match bind_hole env hole with

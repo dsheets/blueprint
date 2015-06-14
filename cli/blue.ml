@@ -61,7 +61,7 @@ let is_ws s =
   in
   loop 0
 
-let rec compose prev_bindings incomplete = function
+let rec compose prev_bindings partial = function
   | [] -> `Help (`Pager, None)
   | [file] ->
     let buffer = Buffer.create 1024 in
@@ -78,7 +78,7 @@ let rec compose prev_bindings incomplete = function
         then fatal_blueprint_error file `Data_after_root;
         Xmlm.output out signal
       | (`El_start ((ns,tag),attrs))
-        when not incomplete && ns = Blueprint.xmlns ->
+        when not partial && ns = Blueprint.xmlns ->
         begin try let name = List.assoc ("","name") attrs in
             fatal_blueprint_error file (`Empty_hole name)
           with Not_found ->
@@ -99,7 +99,7 @@ let rec compose prev_bindings incomplete = function
       try
         (* we get our xml_out back, ignore it *)
         ignore Blueprint.(
-          bind ~incomplete ~sink xml_out prev_bindings template
+          bind ~partial ~sink xml_out prev_bindings template
         )
       with
       | Blueprint.Error err -> fatal_blueprint_error file err
@@ -109,21 +109,21 @@ let rec compose prev_bindings incomplete = function
   | file::files ->
     (* template is ignored in all but the last file *)
     let bindings = Blueprint.Scope.scope (read_blueprint file) in
-    compose (Blueprint.Scope.shadow bindings prev_bindings) incomplete files
+    compose (Blueprint.Scope.shadow bindings prev_bindings) partial files
 
 let compose_cmd =
   let doc = "templates to compose, use '-' to read from stdin" in
   let docv = "TEMPLATES" in
   let templates = Arg.(value (pos_all string [] & info ~docv ~doc [])) in
-  let doc = "allow incomplete output" in
-  let incomplete = Arg.(value (flag & info ~doc ["i"])) in
+  let doc = "allow partially fulfilled output" in
+  let partial = Arg.(value (flag & info ~doc ["p"])) in
   let man = [
     `S "DESCRIPTION";
     `P ("$(b, "^exec_name^") composes blueprint templates.");
   ]
   in
   Term.(
-    ret (pure (compose Blueprint.Scope.empty) $ incomplete $ templates),
+    ret (pure (compose Blueprint.Scope.empty) $ partial $ templates),
     info exec_name ~version ~man
   )
 

@@ -18,7 +18,7 @@ The blueprint template language is an XML vocabulary that lets you place
 'holes' in [polyglot HTML](http://www.w3.org/TR/html-polyglot/) (or XML)
 documents. The `blue` command line tool automatically binds the
 blueprint namespace to the `t:` prefix. Blueprint has 4 tags: *seq*,
-*insert*, *let*, and *attr*.
+*let*, *insert*, and *attr*.
 
 ### `t:seq`
 
@@ -67,5 +67,5 @@ single output document. The last file listed is used as the template and
 all preceding files are used only for their bindings. Any unbound content
 in the preceding files is discarded. The result must not contain any
 template elements and will be sent to `stdout`. To read from `stdin`,
-use `-` as a file name. The `-i` option will disable incomplete template
+use `-` as a file name. The `-p` option will disable incomplete template
 errors and allow output of partially fulfilled templates.

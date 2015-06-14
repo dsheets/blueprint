@@ -98,7 +98,7 @@ let run_result = function
 
 let run_return_test return name () =
   run_result return.blue name ""   [|"OCAMLRUNPARAM=b";"BLUE=../../blue"|] ();
-  run_result return.i    name ".i" [|"OCAMLRUNPARAM=b";"BLUE=../../blue -i"|] ()
+  run_result return.i    name ".i" [|"OCAMLRUNPARAM=b";"BLUE=../../blue -p"|] ()
 
 (* Tests *)
 
@@ -108,7 +108,7 @@ let tests =
 let success = { blue = Success; i = Success }
 let error   = { blue = Error;   i = Error   }
 let trouble = { blue = Trouble; i = Trouble }
-let incomplete = { blue = Error; i = Success }
+let partial = { blue = Error; i = Success }
 
 let success_tests ts = tests (List.map (fun name -> name, success) ts)
 
@@ -191,21 +191,21 @@ Alcotest.run "blue" [
 
   "Error", tests [
     "bad_xml_no_close", error;
-    "self_hole", incomplete;
+    "self_hole", partial;
     "unknown_tag", error;
-    "bad_decl_scope", incomplete;
+    "bad_decl_scope", partial;
     "bad_insert_name", error;
     "bad_let_name", error;
     "bad_ident_comma", error;
     "top_seq_multi", error;
-    "decl_rec", incomplete;
-    "decl_mutual_rec", incomplete;
-    "decl_intro_rec", incomplete;
-    "bad_compose_scope", incomplete;
-    "compose3_rec", incomplete;
-    "default_empty_insert", incomplete;
+    "decl_rec", partial;
+    "decl_mutual_rec", partial;
+    "decl_intro_rec", partial;
+    "bad_compose_scope", partial;
+    "compose3_rec", partial;
+    "default_empty_insert", partial;
     "bad_attr_name", error;
-    "attr_open", incomplete;
+    "attr_open", partial;
     "attr_floating", error;
     "insert_attr", error;
     "let_attr", error;

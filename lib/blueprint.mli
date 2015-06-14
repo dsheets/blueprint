@@ -67,6 +67,6 @@ val of_stream :
 val xml_source : Xmlm.input -> Xmlm.input * Xmlm.signal option
 
 val bind :
-  ?incomplete:bool ->
+  ?partial:bool ->
   sink:(prov -> 'acc -> Xmlm.signal list -> 'acc) ->
   'acc -> Rope.t Scope.t -> Rope.t -> 'acc
