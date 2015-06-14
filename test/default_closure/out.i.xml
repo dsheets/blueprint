@@ -1,1 +1,9 @@
-out.xml
+<html>
+  <body>
+    
+    <t:insert name="">
+      Z
+    </t:insert>
+  
+  </body>
+</html>

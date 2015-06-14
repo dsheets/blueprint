@@ -1,1 +1,6 @@
-out.xml
+<html>
+  <body>
+    <p>foo is <t:insert name="foo">missing</t:insert></p>
+    <p>foo.bar is [foo.bar]</p>
+  </body>
+</html>

@@ -1,1 +1,5 @@
-out.xml
+<html>
+  <t:insert name="body">
+    <body><p>Empty!</p></body>
+  </t:insert>
+</html>

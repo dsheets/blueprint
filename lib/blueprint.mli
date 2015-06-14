@@ -51,10 +51,8 @@ module Hole : sig
   type ('rope, 'value) t
 end
 
-type 'a valued = Default of 'a | Typed of string * 'a
-
 module rec Template :
-  (XmlRope.TEMPLATE with type hole = (Rope.t, Rope.t valued) Hole.t
+  (XmlRope.TEMPLATE with type hole = (Rope.t, Rope.t) Hole.t
                      and type prov = prov)
 and Rope : XmlRope.S with
   type hole = Template.hole and type prov = Template.prov
@@ -67,8 +65,6 @@ val of_stream :
   prov:prov -> source:('acc -> 'acc * Xmlm.signal option) -> 'acc -> 'acc * t
 
 val xml_source : Xmlm.input -> Xmlm.input * Xmlm.signal option
-
-val bind_hole : Rope.t Scope.t -> Template.hole -> Rope.t option
 
 val bind :
   ?incomplete:bool ->

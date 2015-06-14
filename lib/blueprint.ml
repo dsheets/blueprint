@@ -176,23 +176,51 @@ type prov =
   | File of string
 type prov' = prov
 
-type 'a valued =
-  | Default of 'a
-  | Typed of string * 'a
+let get_rope bindings ident = Scope.(match get bindings ident with
+  | Some { rope = Some rope } -> Some rope
+  | Some { rope = None } | None -> None
+)
+
+let bind_hole bindings hole = match get_rope bindings (Hole.name hole) with
+  | Some t -> Some t
+  | None -> hole.Hole.default
+
+let rec patch_hole ~incomplete make_hole patch env prov hole = Hole.(
+  match get_rope env (name hole) with
+  | Some t -> (Scope.shadow hole.env env, t)
+  | None -> match hole.default with
+    | None when incomplete -> env, make_hole ~prov hole
+    | None -> raise (Error (`Empty_hole (String.concat "." (name hole))))
+    | Some t ->
+      let env = Scope.shadow hole.env env in
+      let patch_hole = patch_hole ~incomplete make_hole patch in
+      if incomplete
+      then (env, make_hole ~prov {
+        hole with default = Some (patch patch_hole env t)
+      })
+      else (env, t)
+)
+
+let empty_seq = [ `El_start ((xmlns,"seq"),[]); `El_end ]
 
 module rec Template :
-  XmlRope.TEMPLATE with type hole = (Rope.t, Rope.t valued) Hole.t
+  XmlRope.TEMPLATE with type hole = (Rope.t, Rope.t) Hole.t
                     and type prov = prov
 = struct
-  type hole = (Rope.t, Rope.t valued) Hole.t
+  type hole = (Rope.t, Rope.t) Hole.t
   type prov = prov'
 
-  (* TODO: defaults, closure bindings? *)
-  let signals_of_hole _prov = Hole.(function
-    | { name } ->
-      let name = String.concat "." name in [
-        `El_start ((xmlns,"insert"),[("","name"),name]); `El_end;
-      ]
+  (* TODO: closure bindings? *)
+  let signals_of_hole _prov hole = Hole.(
+    let ident = String.concat "." hole.name in
+    (`El_start ((xmlns,"insert"),[("","name"),ident]))::
+    match hole.default with
+    | None -> [ `El_end ]
+    | Some rope -> Rope.(
+      let patch = patch_hole ~incomplete:true make_hole patch in
+      let default = to_list ~patch hole.env rope in
+      match default with [] -> empty_seq | _ -> default
+    ) @ [ `El_end ]
   )
 end
 and Rope : XmlRope.S
@@ -201,11 +229,6 @@ and Rope : XmlRope.S
   = XmlRope.Make(Template)
 
 type t = Rope.t Scope.obj
-
-let get_rope bindings ident = Scope.(match get bindings ident with
-  | Some { rope = Some rope } -> Some rope
-  | Some { rope = None } | None -> None
-)
 
 let default_rope = function None -> Rope.empty | Some rope -> rope
 
@@ -279,26 +302,11 @@ let rtrim = function
 
 let empty_blueprint = Scope.empty_obj
 
-let default_hole = Hole.(function
-  | { default = Some (Default rope) }    -> Some rope
-  | { default = Some (Typed (_, rope)) } -> Some rope
-  | { default = None }                   -> None
-)
-
-let bind_hole bindings hole = match get_rope bindings (Hole.name hole) with
-  | Some t -> Some t
-  | None -> default_hole hole
-
 let xml_source xml_input =
   xml_input, if Xmlm.eoi xml_input then None else Some (Xmlm.input xml_input)
 
 let bind ?(incomplete=false) ~sink out bindings rope =
-  let patch env prov hole =
-    match bind_hole env hole with
-    | None when incomplete -> env, Rope.make_hole prov hole
-    | None -> raise (Error (`Empty_hole (String.concat "." (Hole.name hole))))
-    | Some t -> (Scope.shadow hole.Hole.env env, t)
-  in
+  let patch = patch_hole ~incomplete Rope.make_hole Rope.patch in
   Rope.to_stream ~patch ~sink bindings out rope
 
 (*
@@ -348,11 +356,14 @@ let of_stream ~prov ~source =
       begin match get_rope children name with
         | None -> add_hole stack seq ctxt b acc name literal
         | Some template ->
-          let template = patch (fun env prov hole ->
+          let patch_hole = patch_hole ~incomplete:true make_hole patch in
+          let template = patch patch_hole children template in
+          (*let template = patch (fun env prov hole ->
             match bind_hole env hole with
             | None -> (env, Rope.make_hole ~prov hole)
             | Some t -> (shadow hole.Hole.env env, t)
           ) children template in
+          *)
           (* Now, we throw away any default value. *)
           let default = { b with rope = None } in
           let acc, _default = run [0,[]] [] ctxt default (source acc) in
@@ -396,14 +407,14 @@ let of_stream ~prov ~source =
     match source acc with
     | (acc, (None | Some `El_end)) as c ->
       let hole = Hole.named name children in
-      let rope = rope +? literal ++ (Rope.make_hole ~prov hole) in
+      let rope = rope +? literal ++ (make_hole ~prov hole) in
       run (XmlStack.push stack) [] ctxt (with_rope b rope) c
-    | acc, Some signal ->
+    | acc, signal_opt ->
       let default = { b with rope = None } in
-      let acc, default = run [0,[]] [] ctxt default (acc, Some signal) in
+      let acc, default = run [0,[]] [] ctxt default (acc, signal_opt) in
       let default_rope = default_rope default.rope in
-      let hole = Hole.valued name (Default default_rope) children in
-      let rope = rope +? literal ++ (Rope.make_hole ~prov hole) in
+      let hole = Hole.valued name default_rope children in
+      let rope = rope +? literal ++ (make_hole ~prov hole) in
       run stack [] ctxt (with_rope b rope) (source acc)
   ) in
   fun acc ->

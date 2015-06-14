@@ -153,6 +153,7 @@ Alcotest.run "blue" [
     "override_default";
     "default_open";
     "default_closure";
+    "closure_default";
     "top_insert";
   ];
 

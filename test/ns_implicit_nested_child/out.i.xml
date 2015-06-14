@@ -1,1 +1,10 @@
-out.xml
+<html>
+  <body>
+    
+    <p>
+      [foo.bar]
+    </p>
+  
+    <p><t:insert name="foo.bar">No foo.bar</t:insert></p>
+  </body>
+</html>

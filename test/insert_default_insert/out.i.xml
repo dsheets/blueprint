@@ -1,1 +1,9 @@
-out.xml
+<html>
+  <body>
+    
+    <t:insert name="">
+      'y'!
+    </t:insert>
+  
+  </body>
+</html>
