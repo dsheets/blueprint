@@ -133,6 +133,7 @@ Alcotest.run "blue" [
     "decl_hole_open_chained";
     "decl_hole_closed";
     "decl_dup";
+    "closure_shadow";
   ];
 
   "Composition", success_tests [
