@@ -358,12 +358,6 @@ let of_stream ~prov ~source =
         | Some template ->
           let patch_hole = patch_hole ~partial:true make_hole patch in
           let template = patch patch_hole children template in
-          (*let template = patch (fun env prov hole ->
-            match bind_hole env hole with
-            | None -> (env, Rope.make_hole ~prov hole)
-            | Some t -> (shadow hole.Hole.env env, t)
-          ) children template in
-          *)
           (* Now, we throw away any default value. *)
           let default = { b with rope = None } in
           let acc, _default = run [0,[]] [] ctxt default (source acc) in
