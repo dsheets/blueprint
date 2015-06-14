@@ -98,7 +98,7 @@ let run_result = function
 
 let run_return_test return name () =
   run_result return.blue name ""   [|"OCAMLRUNPARAM=b";"BLUE=../../blue"|] ();
-  run_result return.i    name ".i" [|"OCAMLRUNPARAM=b";"BLUE=../../blue -p"|] ()
+  run_result return.i    name ".p" [|"OCAMLRUNPARAM=b";"BLUE=../../blue -p"|] ()
 
 (* Tests *)
 
