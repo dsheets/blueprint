@@ -1,2 +1,3 @@
 blue: in.xml: template error:
 No value for hole named 'foo'
+from file 'in.xml', line 3, column 46

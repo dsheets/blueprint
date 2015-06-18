@@ -36,7 +36,7 @@ let read_blueprint file =
     match file with
     | "-" ->
       let open Blueprint in
-      let prov = File file in
+      let prov = Prov.{ src = File file; loc = None; incl = None } in
       let xml_input = Xmlm.make_input ~ns (`Channel stdin) in
       let source = xml_source in
       let _, rope = of_stream ~prov ~source xml_input in
@@ -71,22 +71,25 @@ let rec compose prev_bindings partial = function
     in
     let depth = ref 0 in (* TODO: this isn't very nice... *)
     let after_root = ref false in
-    let sink _prov out s = List.iter (function
+    let sink prov out s = List.iter (function
       | `Data s when !depth = 0 && is_ws s -> ()
       | (`Data _ | `Dtd _) as signal ->
         if !after_root
-        then fatal_blueprint_error file `Data_after_root;
+        then fatal_blueprint_error file
+            (`Data_after_root prov.Blueprint.Prov.loc);
         Xmlm.output out signal
       | (`El_start ((ns,tag),attrs))
         when not partial && ns = Blueprint.xmlns ->
         begin try let name = List.assoc ("","name") attrs in
-            fatal_blueprint_error file (`Empty_hole name)
+            fatal_blueprint_error file (`Empty_hole (Some prov, name))
           with Not_found ->
-            fatal_blueprint_error file (`Missing_attribute (tag, "name"))
+            let { Blueprint.Prov.loc } = prov in
+            fatal_blueprint_error file (`Missing_attribute (loc, tag, "name"))
         end
       | (`El_start _) as signal ->
         if !after_root
-        then fatal_blueprint_error file `Element_after_root;
+        then fatal_blueprint_error file
+            (`Element_after_root prov.Blueprint.Prov.loc);
         incr depth;
         Xmlm.output out signal
       | `El_end ->
@@ -108,7 +111,7 @@ let rec compose prev_bindings partial = function
     `Ok ()
   | file::files ->
     (* template is ignored in all but the last file *)
-    let bindings = Blueprint.Scope.scope (read_blueprint file) in
+    let bindings = Blueprint.Scope.children (read_blueprint file) in
     compose (Blueprint.Scope.shadow bindings prev_bindings) partial files
 
 let compose_cmd =

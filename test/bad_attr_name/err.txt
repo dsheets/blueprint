@@ -1,2 +1,2 @@
 blue: in.xml: template error:
-Tag 'attr' is missing attribute 'name'
+Line 3, column 12: tag 'attr' is missing attribute 'name'

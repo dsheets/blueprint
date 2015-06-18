@@ -1,2 +1,2 @@
 blue: in.xml: template error:
-Tag 'insert' is missing attribute 'name'
+Line 2, column 12: tag 'insert' is missing attribute 'name'

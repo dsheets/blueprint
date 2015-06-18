@@ -22,14 +22,14 @@ module type TEMPLATE = sig
   type hole
   type prov
 
-  val signals_of_hole : prov -> hole -> Xmlm.signal list
+  val signals_of_hole : prov:prov -> hole -> Xmlm.signal list
 end
 
 module type S = sig
   type hole
   type prov
   type t
-  type 'a patch = 'a -> prov -> hole -> 'a * t
+  type 'a patch = 'a -> prov -> hole -> ('a * t) option
   type 'a sink = prov -> 'a -> Xmlm.signal list -> 'a
 
   val of_list : prov:prov -> Xmlm.signal list -> t
@@ -53,6 +53,8 @@ module type S = sig
     ([< `Data of string | `El of Xmlm.tag * 'b list ] as 'b) list -> t
 
   val holes : t -> hole list
+
+  val map_prov : (prov -> prov) -> t -> t
 
   val patch : 'a patch -> 'a -> t -> t
 

@@ -1,2 +1,2 @@
 blue: in.xml: template error:
-Unknown tag 'unicorn'
+line 2, column 14: unknown tag 'unicorn'

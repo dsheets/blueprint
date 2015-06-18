@@ -1,2 +1,2 @@
 blue: in.xml: template error:
-The attribute 'class' is not attached to a start tag
+line 3, column 25: the attribute 'class' is not attached to a start tag

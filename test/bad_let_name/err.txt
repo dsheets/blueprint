@@ -1,2 +1,2 @@
 blue: in.xml: template error:
-Tag 'let' is missing attribute 'name'
+Line 2, column 9: tag 'let' is missing attribute 'name'

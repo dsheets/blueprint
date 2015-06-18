@@ -15,18 +15,56 @@
  *
  *)
 
-(* This is an extremely simple templating system based on XML ropes
-   with named holes. *)
+(* This is a simple templating system based on XML ropes with named
+   holes. *)
 
-(* TODO: these should carry the location of the error and source *)
+module Prov = struct
+  type loc = int * int
+  type src = Stream of string | File of string
+  type t = {
+    src  : src;
+    loc  : loc option;
+    incl : (string * t) option;
+  }
+
+  let with_loc prov loc = { prov with loc = Some loc }
+
+  let with_incl prov name parent = { prov with incl = Some (name, parent) }
+
+  let rec append_incl prov name parent = match prov.incl with
+    | None -> { prov with incl = Some (name, parent) }
+    | Some (incl_name,incl) ->
+      { prov with incl = Some (incl_name, append_incl incl name parent) }
+
+  let string_of_loc (l,c) = Printf.sprintf "line %d, column %d" l c
+
+  let string_of_src = function
+    | Stream s -> Printf.sprintf "stream '%s'" s
+    | File f -> Printf.sprintf "file '%s'" f
+
+  let rec to_string = function
+    | { src; loc = Some loc; incl = Some (incl,parent) } ->
+      Printf.sprintf "from %s, %s\nincluded as '%s' %s"
+        (string_of_src src) (string_of_loc loc) incl (to_string parent)
+    | { src; loc = None; incl = Some (incl,parent) } ->
+      Printf.sprintf "from %s\nincluded as '%s' %s"
+        (string_of_src src) incl (to_string parent)
+    | { src; loc = Some loc; incl = None } ->
+      Printf.sprintf "from %s, %s" (string_of_src src) (string_of_loc loc)
+    | { src; loc = None; incl = None } ->
+      Printf.sprintf "from %s" (string_of_src src)
+end
+
+type signal = Prov.loc * Xmlm.signal
+
 type error = [
-  | `Empty_hole of string
-  | `Bad_ident of string
-  | `Unknown_tag of string
-  | `Missing_attribute of string * string
-  | `Floating_attr of string
-  | `Data_after_root
-  | `Element_after_root
+  | `Empty_hole of Prov.t option * string
+  | `Bad_ident of Prov.loc * string
+  | `Unknown_tag of Prov.loc * string
+  | `Missing_attribute of Prov.loc option * string * string
+  | `Floating_attr of Prov.loc * string
+  | `Data_after_root of Prov.loc option
+  | `Element_after_root of Prov.loc option
 ]
 
 exception Error of error
@@ -35,16 +73,32 @@ let xmlns = "https://opam.ocaml.org/packages/blueprint/xmlns/0/#"
 
 let xmlns_map_default ns = if ns = xmlns then Some "t" else None
 
-let error_message : error -> string = function
-  | `Empty_hole name -> "No value for hole named '"^name^"'"
-  | `Bad_ident name -> "The identifier '"^name^"' is invalid"
-  | `Unknown_tag tag -> "Unknown tag '"^tag^"'"
-  | `Missing_attribute (tag,attr) ->
-    "Tag '"^tag^"' is missing attribute '"^attr^"'"
-  | `Floating_attr attr ->
-    "The attribute '"^attr^"' is not attached to a start tag"
-  | `Data_after_root -> "Data are not allowed after the root element"
-  | `Element_after_root -> "Tags are not allowed after the root element"
+let error_message : error -> string = Printf.(function
+  | `Empty_hole (None, name) ->
+    sprintf "No value for hole named '%s'" name
+  | `Empty_hole (Some prov, name) ->
+    sprintf "No value for hole named '%s'\n%s" name (Prov.to_string prov)
+  | `Bad_ident (loc, name) ->
+    sprintf "%s: the identifier '%s' is invalid" (Prov.string_of_loc loc) name
+  | `Unknown_tag (loc, tag) ->
+    sprintf "%s: unknown tag '%s'" (Prov.string_of_loc loc) tag
+  | `Missing_attribute (None,tag,attr) ->
+    sprintf "Tag '%s' is missing attribute '%s'" tag attr
+  | `Missing_attribute (Some loc,tag,attr) ->
+    sprintf "%s: tag '%s' is missing attribute '%s'"
+      (String.capitalize (Prov.string_of_loc loc)) tag attr
+  | `Floating_attr (loc, attr) ->
+    sprintf "%s: the attribute '%s' is not attached to a start tag"
+      (Prov.string_of_loc loc) attr
+  | `Data_after_root None -> "Data are not allowed after the root element"
+  | `Data_after_root (Some loc) ->
+    sprintf "%s: data are not allowed after the root element"
+      (Prov.string_of_loc loc)
+  | `Element_after_root None -> "Tags are not allowed after the root element"
+  | `Element_after_root (Some loc) ->
+    sprintf "%s: tags are not allowed after the root element"
+      (Prov.string_of_loc loc)
+)
 
 let rec compare_string_list sl sl' = match sl, sl' with
   | [], [] -> 0
@@ -66,13 +120,13 @@ module Ident = struct
       true
     with Not_found -> false
 
-  let of_string ctxt s =
+  let of_string loc ctxt s =
     let ident = Stringext.split ~on:'.' s in
     if List.for_all is_valid ident
     then match ident with
       | ""::rest -> ctxt @ rest
       | _ -> ident
-    else raise (Error (`Bad_ident s))
+    else raise (Error (`Bad_ident (loc, s)))
 
   let compare = compare_string_list
 end
@@ -80,21 +134,25 @@ end
 module StringMap = Map.Make(String)
 
 module Scope = struct
-
   type 'rope t = {
     map : 'rope obj StringMap.t;
-    gen : (Ident.t -> 'rope obj option) option;
+    gen : 'rope gen option;
   }
   and 'rope obj = {
     rope : 'rope option;
     children : 'rope t;
   }
+  and 'rope gen = {
+    lookup : Ident.t -> 'rope obj option;
+    pop    : unit -> ((string * 'rope obj) * 'rope gen option) option;
+    shadow : 'rope gen -> 'rope gen;
+  }
 
   let empty = { map = StringMap.empty; gen = None; }
-  let empty_obj = { rope = None; children = empty }
+  let empty_obj = { rope = None; children = empty; }
 
   let template { rope } = rope
-  let scope { children } = children
+  let children { children } = children
 
   let with_rope obj rope = { obj with rope = Some rope }
 
@@ -112,9 +170,7 @@ module Scope = struct
       | None -> a.gen
       | Some bgen -> match a.gen with
         | None -> Some bgen
-        | Some agen -> Some (fun ident ->
-          match agen ident with None -> bgen ident | (Some _) as o -> o
-        )
+        | Some agen -> Some (agen.shadow bgen)
   }
 
   let get bindings ident =
@@ -125,9 +181,20 @@ module Scope = struct
         | Some obj -> aux (Some obj) obj.children rest
         | None -> match gen with
           | None -> None
-          | Some gen -> gen ident
+          | Some gen -> gen.lookup ident
     in
     aux None bindings ident
+
+  let pop bindings =
+    try
+      let (k, _v) as pair = StringMap.min_binding bindings.map in
+      Some (pair, { bindings with map = StringMap.remove k bindings.map })
+    with Not_found -> match bindings.gen with
+      | None -> None
+      | Some gen -> match gen.pop () with
+        | None -> None
+        | Some (pair, gen) ->
+          Some (pair, { bindings with gen })
 
   let get_obj bindings ident = match get bindings ident with
     | Some obj -> obj
@@ -136,8 +203,10 @@ module Scope = struct
   let rec apply bindings f = function
     | [] -> bindings
     | [name] as ident ->
-      let obj = f bindings ident in
-      let map = StringMap.add name obj bindings.map in
+      let map = match f bindings ident with
+        | None -> StringMap.remove name bindings.map
+        | Some obj -> StringMap.add name obj bindings.map
+      in
       { bindings with map }
     | name::rest ->
       let obj = get_obj bindings [name] in
@@ -146,95 +215,154 @@ module Scope = struct
       { bindings with map }
 
   let put bindings ident obj =
-    apply bindings (fun _ _ -> obj) ident
+    apply bindings (fun _ _ -> Some obj) ident
 
   let declare bindings ident rope =
     apply bindings (fun bindings ident ->
       let obj = get_obj bindings ident in
-      { obj with rope = Some rope }
+      Some { obj with rope = Some rope }
     ) ident
+end
 
+module Env = struct
+  type 'rope t = {
+    scope : 'rope Scope.t;
+    expanded : ('rope,int) Hashtbl.t
+  }
+
+  let create scope = { scope; expanded = Hashtbl.create 8 }
+
+  let expand env rope =
+    let expanded = Hashtbl.copy env.expanded in
+    let quota = try Hashtbl.find expanded rope with Not_found -> 1 in
+    Hashtbl.replace expanded rope (quota - 1);
+    { env with expanded }
+
+  let is_expandable env rope =
+    try
+      let quota = Hashtbl.find env.expanded rope in
+      quota > 0
+    with Not_found -> true
+
+  let set_expansion env rope i =
+    let expanded = Hashtbl.copy env.expanded in
+    Hashtbl.replace expanded rope i;
+    { env with expanded }
 end
 
 module Hole = struct
+  type 'value value =
+    | Subtree of 'value option
+
   type ('rope, 'value) t = {
     name : Ident.t;
-    default : 'value option;
+    value : 'value value;
     env : 'rope Scope.t;
   }
 
   let name { name } = name
 
-  let named name env = { name; default = None; env; }
-  let valued name value env = { name; default = Some value; env; }
+  let named name env = { name; value = Subtree None; env; }
+  let valued name value env = { name; value = Subtree (Some value); env; }
 end
-
-(* TODO: What about lexical info? values are assumed to be static per
-   source *)
-type prov =
-  | Stream of string
-  | File of string
-type prov' = prov
 
 let get_rope bindings ident = Scope.(match get bindings ident with
   | Some { rope = Some rope } -> Some rope
   | Some { rope = None } | None -> None
 )
 
-let bind_hole bindings hole = match get_rope bindings (Hole.name hole) with
-  | Some t -> Some t
-  | None -> hole.Hole.default
-
-let rec patch_hole ~partial make_hole patch env prov hole = Hole.(
-  match get_rope env (name hole) with
-  | Some t -> (Scope.shadow hole.env env, t)
-  | None -> match hole.default with
-    | None when partial -> env, make_hole ~prov hole
-    | None -> raise (Error (`Empty_hole (String.concat "." (name hole))))
-    | Some t ->
-      let env = Scope.shadow hole.env env in
-      let patch_hole = patch_hole ~partial make_hole patch in
-      if partial
-      then (env, make_hole ~prov {
-        hole with default = Some (patch patch_hole env t)
-      })
-      else (env, t)
-)
-
 let empty_seq = [ `El_start ((xmlns,"seq"),[]); `El_end ]
 
-module rec Template :
-  XmlRope.TEMPLATE with type hole = (Rope.t, Rope.t) Hole.t
-                    and type prov = prov
+module type PATCH = sig
+  module Rope : XmlRope.S
+
+  val patch_hole : partial:bool -> Rope.t Env.t Rope.patch
+end
+
+module rec Template : XmlRope.TEMPLATE
+  with type hole = (Patch.Rope.t, Rope.t) Hole.t
+   and type prov = Prov.t
 = struct
-  type hole = (Rope.t, Rope.t) Hole.t
-  type prov = prov'
+  type hole = (Patch.Rope.t, Rope.t) Hole.t
+  type prov = Prov.t
 
   (* TODO: closure bindings? *)
-  let signals_of_hole _prov hole = Hole.(
-    let ident = String.concat "." hole.name in
-    (`El_start ((xmlns,"insert"),[("","name"),ident]))::
-    match hole.default with
-    | None -> [ `El_end ]
-    | Some rope -> Rope.(
-      let patch = patch_hole ~partial:true make_hole patch in
-      let default = to_list ~patch hole.env rope in
-      match default with [] -> empty_seq | _ -> default
-    ) @ [ `El_end ]
+  let signals_of_hole ~prov hole = Hole.(
+    match hole.value with
+    | Subtree default ->
+      let ident = String.concat "." hole.name in
+      (`El_start ((xmlns,"insert"),[("","name"),ident]))::
+      begin match default with
+        | None -> [ `El_end ]
+        | Some rope -> Rope.(
+          let patch = Patch.patch_hole ~partial:true in
+          let default = to_list ~patch (Env.create hole.env) rope in
+          match default with [] -> empty_seq | _ -> default
+        ) @ [ `El_end ]
+      end
   )
+
 end
+
 and Rope : XmlRope.S
   with type hole = Template.hole
    and type prov = Template.prov
   = XmlRope.Make(Template)
 
+and Patch : PATCH
+  with type Rope.t = Rope.t
+   and type Rope.hole = Template.hole
+   and type Rope.prov = Template.prov
+= struct
+  module Rope = Rope
+
+  let rec patch_hole ~partial : Rope.t Env.t Rope.patch = Hole.(
+    fun env prov hole ->
+      let { Env.scope } = env in
+      match hole with
+      | { name; value = Subtree default } ->
+        let rope_opt = get_rope scope name in
+        let scope = Scope.shadow hole.env scope in
+        let env = { env with Env.scope } in
+        match rope_opt with
+        | Some t ->
+          if not (Env.is_expandable env t)
+          then None
+          else
+            let env = Env.expand env t in
+            let t = Rope.map_prov (fun parent ->
+              (* TODO: this potential replacement seems dodgy *)
+              Prov.with_incl parent (String.concat "." name) prov
+            ) t in
+            Some (env, t)
+        | None -> match default with
+          | None when partial -> None
+          | None ->
+            raise (Error (`Empty_hole (Some prov, String.concat "." name)))
+          | Some t ->
+            if not (Env.is_expandable env t)
+            then None
+            else
+              let env = Env.expand env t in
+              if partial
+              then
+                let patch_hole = patch_hole ~partial in
+                Some (env, Rope.make_hole ~prov {
+                  hole with value = Subtree (Some (Rope.patch patch_hole env t))
+                })
+              else Some (env, t)
+  )
+end
+
+let patch_hole = Patch.patch_hole
+
 type t = Rope.t Scope.obj
 
 let default_rope = function None -> Rope.empty | Some rope -> rope
 
-let get_attr tag attrs attr =
+let get_attr loc tag attrs attr =
   try List.assoc ("",attr) attrs
-  with Not_found -> raise (Error (`Missing_attribute (tag, attr)))
+  with Not_found -> raise (Error (`Missing_attribute (Some loc, tag, attr)))
 
 module XmlStack = struct
   type frame = int * (int * Rope.t Scope.t) list
@@ -303,11 +431,15 @@ let rtrim = function
 let empty_blueprint = Scope.empty_obj
 
 let xml_source xml_input =
-  xml_input, if Xmlm.eoi xml_input then None else Some (Xmlm.input xml_input)
+  xml_input,
+  let pos = Xmlm.pos xml_input in
+  if Xmlm.eoi xml_input
+  then None
+  else Some (pos, Xmlm.input xml_input)
 
 let bind ?(partial=false) ~sink out bindings rope =
-  let patch = patch_hole ~partial Rope.make_hole Rope.patch in
-  Rope.to_stream ~patch ~sink bindings out rope
+  let patch = patch_hole ~partial in
+  Rope.to_stream ~patch ~sink (Env.create bindings) out rope
 
 (*
 let string_of_rope rope =
@@ -332,9 +464,9 @@ let of_stream ~prov ~source =
   let rec run stack seq ctxt ({ rope; children } as b) = function
     | acc, None ->
       acc, with_rope b Rope.(rope +? (of_list ~prov (List.rev seq)))
-    | acc, Some el -> match el with
+    | acc, Some (loc, el) -> match el with
       | `El_start ((ns,el),attrs) when ns=xmlns ->
-        handle stack seq ctxt b acc attrs el
+        handle stack seq ctxt b acc attrs loc el
       | `El_start el ->
         run (XmlStack.incr stack) ((`El_start el)::seq) ctxt b (source acc)
       | `El_end when XmlStack.consumep stack ->
@@ -349,15 +481,22 @@ let of_stream ~prov ~source =
       | (`Dtd _ | `Data _) as signal ->
         run stack (signal::seq) ctxt b (source acc)
 
-  and handle stack seq ctxt ({ rope; children } as b) acc attrs = Rope.(function
+  and handle stack seq ctxt ({ rope; children } as b) acc attrs loc = Rope.(
+    function
     | "insert" ->
       let literal = of_list ~prov (List.rev seq) in
-      let name = Ident.of_string ctxt (get_attr "insert" attrs "name") in
+      let name = Ident.of_string loc ctxt (get_attr loc "insert" attrs "name") in
       begin match get_rope children name with
-        | None -> add_hole stack seq ctxt b acc name literal
+        | None -> add_hole stack seq ctxt b acc name literal loc
         | Some template ->
-          let patch_hole = patch_hole ~partial:true make_hole patch in
-          let template = patch patch_hole children template in
+          let prov = Prov.with_loc prov loc in
+          let template = Rope.map_prov (fun parent ->
+            let name = String.concat "." name in
+            Prov.append_incl parent name prov
+          ) template in
+          let patch_hole = patch_hole ~partial:true in
+          let env = Env.create children in
+          let template = patch patch_hole env template in
           (* Now, we throw away any default value. *)
           let default = { b with rope = None } in
           let acc, _default = run [0,[]] [] ctxt default (source acc) in
@@ -366,7 +505,7 @@ let of_stream ~prov ~source =
       end
 
     | "attr" ->
-      let name = get_attr "attr" attrs "name" in
+      let name = get_attr loc "attr" attrs "name" in
       let content = { b with rope = None } in
       let acc, content = run [0,[]] [] ctxt content (source acc) in
       let rope = match rtrim_all seq with
@@ -374,12 +513,12 @@ let of_stream ~prov ~source =
           let literal = of_list ~prov (List.rev r) in
           let attr = (("",name), default_rope content.rope) in
           rope +? literal ++ (make_attrs ~prov (tag,attrs) [attr])
-        | _::_ -> raise (Error (`Floating_attr name))
+        | _::_ -> raise (Error (`Floating_attr (loc, name)))
         | [] -> match rope with
           | Some rope when in_attrs rope ->
             let attr = (("",name), default_rope content.rope) in
             with_attr rope attr
-          | Some _ | None -> raise (Error (`Floating_attr name))
+          | Some _ | None -> raise (Error (`Floating_attr (loc, name)))
       in
       run stack [] ctxt (with_rope b rope) (source acc)
 
@@ -387,29 +526,31 @@ let of_stream ~prov ~source =
 
     | "let" ->
       let seq = rtrim seq in
-      let name = Ident.of_string ctxt (get_attr "let" attrs "name") in
+      let name = Ident.of_string loc ctxt (get_attr loc "let" attrs "name") in
       let acc, letb = run [0,[]] [] name { b with rope = None } (source acc) in
       let obj = Scope.({ (get_obj letb.children name) with rope = letb.rope }) in
       let b = { b with children = Scope.put children name obj } in
       run (XmlStack.save_bindings children stack) seq ctxt b (source acc)
 
     | el ->
-      raise (Error (`Unknown_tag el))
+      raise (Error (`Unknown_tag (loc, el)))
   )
 
-  and add_hole stack seq ctxt ({ rope; children } as b) acc name literal = Rope.(
+  and add_hole stack seq ctxt ({ rope; children } as b) acc name literal loc =
+    let open Rope in
+    let prov = Prov.with_loc prov loc in
     match source acc with
-    | (acc, (None | Some `El_end)) as c ->
+    | (acc, (None | Some (_,`El_end))) as c ->
       let hole = Hole.named name children in
       let rope = rope +? literal ++ (make_hole ~prov hole) in
       run (XmlStack.push stack) [] ctxt (with_rope b rope) c
-    | acc, signal_opt ->
+    | (acc, _signal_opt) as c ->
       let default = { b with rope = None } in
-      let acc, default = run [0,[]] [] ctxt default (acc, signal_opt) in
+      let acc, default = run [0,[]] [] ctxt default c in
       let default_rope = default_rope default.rope in
       let hole = Hole.valued name default_rope children in
       let rope = rope +? literal ++ (make_hole ~prov hole) in
       run stack [] ctxt (with_rope b rope) (source acc)
-  ) in
+  in
   fun acc ->
     run [1,[]] [] [] empty_blueprint (source acc)

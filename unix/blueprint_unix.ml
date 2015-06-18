@@ -18,7 +18,7 @@
 open Blueprint
 
 let of_file ?(ns=fun _ -> None) path =
-  let prov = File path in
+  let prov = Prov.({ src = File path; loc = None; incl = None }) in
   let fd = Unix.(openfile path [O_RDONLY] 0o000) in
   let ic = Unix.in_channel_of_descr fd in
   try

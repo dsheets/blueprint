@@ -15,19 +15,29 @@
  *
  *)
 
+module Prov : sig
+  type loc = int * int
+  type src = Stream of string | File of string
+  type t = {
+    src : src;
+    loc : loc option;
+    incl : (string * t) option;
+  }
+end
+
 type error = [
-  | `Empty_hole of string
-  | `Bad_ident of string
-  | `Unknown_tag of string
-  | `Missing_attribute of string * string
-  | `Floating_attr of string
-  | `Data_after_root
-  | `Element_after_root
+  | `Empty_hole of Prov.t option * string
+  | `Bad_ident of Prov.loc * string
+  | `Unknown_tag of Prov.loc * string
+  | `Missing_attribute of Prov.loc option * string * string
+  | `Floating_attr of Prov.loc * string
+  | `Data_after_root of Prov.loc option
+  | `Element_after_root of Prov.loc option
 ]
 
 exception Error of error
 
-type prov = Stream of string | File of string
+type signal = Prov.loc * Xmlm.signal
 
 val xmlns : string
 
@@ -43,7 +53,7 @@ module Scope : sig
   val shadow : 'a t -> 'a t -> 'a t
 
   val template : 'rope obj -> 'rope option
-  val scope    : 'rope obj -> 'rope t
+  val children : 'rope obj -> 'rope t
 
 end
 
@@ -53,7 +63,7 @@ end
 
 module rec Template :
   (XmlRope.TEMPLATE with type hole = (Rope.t, Rope.t) Hole.t
-                     and type prov = prov)
+                     and type prov = Prov.t)
 and Rope : XmlRope.S with
   type hole = Template.hole and type prov = Template.prov
 
@@ -62,11 +72,11 @@ type t = Rope.t Scope.obj
 val default_rope : Rope.t option -> Rope.t
 
 val of_stream :
-  prov:prov -> source:('acc -> 'acc * Xmlm.signal option) -> 'acc -> 'acc * t
+  prov:Prov.t -> source:('acc -> 'acc * signal option) -> 'acc -> 'acc * t
 
-val xml_source : Xmlm.input -> Xmlm.input * Xmlm.signal option
+val xml_source : Xmlm.input -> Xmlm.input * signal option
 
 val bind :
   ?partial:bool ->
-  sink:(prov -> 'acc -> Xmlm.signal list -> 'acc) ->
+  sink:(Prov.t -> 'acc -> Xmlm.signal list -> 'acc) ->
   'acc -> Rope.t Scope.t -> Rope.t -> 'acc

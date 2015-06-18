@@ -1,2 +1,3 @@
 blue: in.xml: template error:
 No value for hole named 'head'
+from file 'in.xml', line 6, column 26

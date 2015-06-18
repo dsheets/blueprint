@@ -1,2 +1,3 @@
 blue: extract.xml: template error:
 No value for hole named 'local'
+from file 'extract.xml', line 3, column 27
