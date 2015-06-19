@@ -36,7 +36,7 @@ let read_blueprint file =
     match file with
     | "-" ->
       let open Blueprint in
-      let prov = Prov.{ src = File file; loc = None; incl = None } in
+      let prov = Prov.({ src = File file; loc = None; incl = None }) in
       let xml_input = Xmlm.make_input ~ns (`Channel stdin) in
       let source = xml_source in
       let _, rope = of_stream ~prov ~source xml_input in
