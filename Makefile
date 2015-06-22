@@ -1,5 +1,5 @@
 PRODUCTS=\
-blueprint.cmi blueprint.cmxa blueprint.cmxs \
+blueprint.cma blueprint.cmxa blueprint.cmxs \
 blueprint.cmi blueprint.cmti \
 xmlRope.cmi xmlRope.cmti
 .PHONY: all lib tool install clean blue.native $(PRODUCTS) test
