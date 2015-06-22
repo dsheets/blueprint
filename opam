@@ -1,4 +1,6 @@
 opam-version: "1.2"
+name:         "blueprint"
+version:      "0.4.0"
 maintainer:   "sheets@alum.mit.edu"
 authors:    [ "David Sheets" ]
 license:      "ISC"
@@ -6,8 +8,17 @@ homepage:     "https://github.com/dsheets/blueprint"
 bug-reports:  "https://github.com/dsheets/blueprint/issues"
 dev-repo:     "https://github.com/dsheets/blueprint.git"
 
+substs: [ "lib/META" "blueprint.version" ]
+
 build: [
-  [make]
+  [make "lib"]
+  [make "tool"] { cmdliner:installed & base-unix:installed }
+]
+install: [
+  [make "install"]
+]
+remove: [
+  ["ocamlfind" "remove" "blueprint"]
 ]
 build-test: [
   [make "test"]

@@ -2,3 +2,4 @@ _build
 blue
 blue.native
 blueprintVersion.ml
+lib/META

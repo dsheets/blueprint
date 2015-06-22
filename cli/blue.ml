@@ -18,7 +18,9 @@
 open Printf
 open Cmdliner
 
-let version = BlueprintVersion.(git_rev ^ (if git_dirty then " (dirty)" else ""))
+let version = BlueprintVersion.(
+  git_descr ^ (if git_dirty then " (dirty)" else "")
+)
 let exec_name = Filename.basename Sys.argv.(0)
 
 let ns_bind_default = function "t" -> Some Blueprint.xmlns | _ -> None
