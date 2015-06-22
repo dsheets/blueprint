@@ -4,14 +4,15 @@ blueprint.cmi blueprint.cmti \
 xmlRope.cmi xmlRope.cmti
 .PHONY: all lib tool install clean blue.native $(PRODUCTS) test
 
-OCAMLBUILD=ocamlbuild -use-ocamlfind -cflags -w,@f@p@u@y -Is cli,unix,lib
+OCAMLBUILD=ocamlbuild -use-ocamlfind -cflags -w,@f@p@u@y,-bin-annot \
+		-Is cli,unix,lib
 
-DESCRN=$(shell git describe --tags --always || cat blueprint.version)
+DESCRN=$(shell [ -d .git ] && git describe --tags --always || cat blueprint.version)
 DESCR=$(shell echo "$(DESCRN)" | tr -d '\n')
 
-DIRTY_FLAG=$(shell git diff-index --quiet HEAD || echo "dirty")
+DIRTY_FLAG=$(shell [ -d .git ] && git diff-index --quiet HEAD || echo "dirty")
 ifeq ($(DIRTY_FLAG),dirty)
-DIRTY=$(shell [ -d .git ] && echo "true" || echo "false")
+DIRTY=true
 else
 DIRTY=false
 endif
