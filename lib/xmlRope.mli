@@ -32,6 +32,8 @@ module type S = sig
   type 'a patch = 'a -> prov -> hole -> ('a * t) option
   type 'a sink = prov -> 'a -> Xmlm.signal list -> 'a
 
+  val of_data : prov:prov -> string -> t
+
   val of_list : prov:prov -> Xmlm.signal list -> t
 
   val make_hole : prov:prov -> hole -> t

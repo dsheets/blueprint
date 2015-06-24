@@ -31,6 +31,8 @@ module type S = sig
   type 'a patch = 'a -> prov -> hole -> ('a * t) option
   type 'a sink = prov -> 'a -> Xmlm.signal list -> 'a
 
+  val of_data : prov:prov -> string -> t
+
   val of_list : prov:prov -> Xmlm.signal list -> t
 
   val make_hole : prov:prov -> hole -> t
@@ -78,6 +80,8 @@ struct
   type 'a patch = 'a -> prov -> hole -> ('a * t) option
 
   type 'a sink = prov -> 'a -> Xmlm.signal list -> 'a
+
+  let of_data ~prov data = Literal (prov, ([`Data data],[]))
 
   let of_list ~prov list = Literal (prov, (list,[]))
 

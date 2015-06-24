@@ -20,3 +20,10 @@ open Blueprint
 val of_file : ?ns:(string -> string option) -> string -> t
 (** [of_file ?ns path] is the blueprint in the file [path] interpreted
     according to the XML namespace map given by [?ns]. *)
+
+val bind_to_file :
+  ?partial:bool -> string -> Rope.t Scope.t -> Rope.t -> unit
+(** [bind_to_file ?partial path bindings template] returns after
+    [template] has been written to [path] using [bindings]. If
+    [partial] is true, [bindings] need not be complete. This is a
+    convenience function which wraps {!Blueprint.bind_to_output}. *)

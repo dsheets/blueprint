@@ -55,6 +55,7 @@ module Scope : sig
   val template : 'rope obj -> 'rope option
   val children : 'rope obj -> 'rope t
 
+  val find : 'rope t -> string -> 'rope obj option
 end
 
 module Hole : sig
@@ -80,3 +81,14 @@ val bind :
   ?partial:bool ->
   sink:(Prov.t -> 'acc -> Xmlm.signal list -> 'acc) ->
   'acc -> Rope.t Scope.t -> Rope.t -> 'acc
+
+val xml_sink :
+  ?partial:bool -> unit ->
+  (Prov.t -> Xmlm.output -> Xmlm.signal list -> Xmlm.output)
+
+val buffer_sink :
+  ?partial:bool -> Buffer.t ->
+  (Prov.t -> unit -> Xmlm.signal list -> unit)
+
+val bind_to_output :
+  ?partial:bool -> out_channel -> Rope.t Scope.t -> Rope.t -> unit

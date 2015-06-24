@@ -30,3 +30,8 @@ let of_file ?(ns=fun _ -> None) path =
   with e -> (* TODO: Actually handle exceptions *)
     close_in ic;
     raise e
+
+let bind_to_file ?partial path bindings template =
+  let oc = open_out path in
+  bind_to_output ?partial oc bindings template;
+  close_out oc

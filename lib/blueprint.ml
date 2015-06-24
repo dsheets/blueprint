@@ -185,6 +185,11 @@ module Scope = struct
     in
     aux None bindings ident
 
+  let find bindings name =
+    try
+      get bindings (Ident.of_string (-1,-1) [] name)
+    with Error (`Bad_ident _) -> None
+
   let pop bindings =
     try
       let (k, _v) as pair = StringMap.min_binding bindings.map in
@@ -384,6 +389,17 @@ module XmlStack = struct
     | [] -> []
 end
 
+let is_ws s =
+  let len = String.length s in
+  let rec loop i =
+    if i < len
+    then match String.get s i with
+      | ' ' | '\t' | '\n' -> loop (i+1)
+      | _ -> false
+    else true
+  in
+  loop 0
+
 let rec rtrim_all = function
   | (`Data s)::r ->
     let len = String.length s in
@@ -440,6 +456,48 @@ let xml_source xml_input =
 let bind ?(partial=false) ~sink out bindings rope =
   let patch = patch_hole ~partial in
   Rope.to_stream ~patch ~sink (Env.create bindings) out rope
+
+let xml_sink ?(partial=false) () =
+  let depth = ref 0 in (* TODO: this isn't very nice... *)
+  let after_root = ref false in
+  fun prov out s -> List.iter (function
+    | `Data s when !depth = 0 && is_ws s -> ()
+    | (`Data _ | `Dtd _) as signal ->
+      if !after_root
+      then raise (Error (`Data_after_root prov.Prov.loc));
+      Xmlm.output out signal
+    | (`El_start ((ns,tag),attrs))
+      when not partial && ns = xmlns ->
+      begin try let name = List.assoc ("","name") attrs in
+          raise (Error (`Empty_hole (Some prov, name)))
+        with Not_found ->
+          let { Prov.loc } = prov in
+          raise (Error (`Missing_attribute (loc, tag, "name")))
+      end
+    | (`El_start _) as signal ->
+      if !after_root
+      then raise (Error (`Element_after_root prov.Prov.loc));
+      incr depth;
+      Xmlm.output out signal
+    | `El_end ->
+      decr depth;
+      if !depth = 0 then after_root := true;
+      Xmlm.output out `El_end
+  ) s; out
+
+let buffer_sink ?partial buffer =
+  let ns_prefix = xmlns_map_default in
+  let xml_out =
+    Xmlm.make_output ~decl:false ~nl:true ~ns_prefix (`Buffer buffer)
+  in
+  let sink = xml_sink ?partial () in
+  fun prov () s -> ignore (sink prov xml_out s)
+
+let bind_to_output ?partial out bindings rope =
+  let buffer = Buffer.create 1024 in
+  let sink = buffer_sink ?partial buffer in
+  bind ?partial ~sink () bindings rope;
+  Buffer.output_buffer out buffer
 
 (*
 let string_of_rope rope =
