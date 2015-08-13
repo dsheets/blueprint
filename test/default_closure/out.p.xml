@@ -1,7 +1,7 @@
 <html>
   <body>
     
-    <t:insert name="">
+    <t:insert name="missing">
       Z
     </t:insert>
   

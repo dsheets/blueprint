@@ -1,0 +1,5 @@
+<html>
+  <body>
+    <t:insert name="x" with="missing"/>
+  </body>
+</html>

@@ -1,5 +1,5 @@
 blue: c.xml: template error:
-No value for hole named 'b'
+Disallowed expansion of 'b'
 from file 'a.xml', line 2, column 40
 included as 'a' from file 'b.xml', line 2, column 40
 included as 'b' from file 'c.xml', line 2, column 30

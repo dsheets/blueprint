@@ -1,0 +1,5 @@
+blue: in.xml: template error:
+No value for hole named 'f'
+from file 'in.xml', line 4, column 39
+included as 'f.child' from file 'in.xml', line 6, column 28
+included as 'f' from file 'in.xml', line 8, column 21

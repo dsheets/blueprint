@@ -1,0 +1,10 @@
+<html>
+  <t:let name="zero"><t:let name=".numeral">0</t:let></t:let>
+  <t:let name="one"><t:let name=".numeral">1</t:let></t:let>
+  <t:let name="b">[<t:insert name="print_numeral"/>]</t:let>
+  <t:let name="print_numeral"><t:insert name="b.numeral"/></t:let>
+  <body>
+    <p>zero <t:insert name="b" with="zero"/></p>
+    <p>one  <t:insert name="b" with="one"/></p>
+  </body>
+</html>

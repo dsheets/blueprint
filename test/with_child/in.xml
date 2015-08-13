@@ -1,0 +1,27 @@
+<html>
+  <t:let name="before">
+    .child.value: <t:insert name=".child.value"/>
+    template with .child: <t:insert name="template" with=".child"/>
+  </t:let>
+  <t:let name="template">
+    <b><t:insert name=".value"/></b>
+    <t:let name=".value">template</t:let>
+  </t:let>
+  <t:let name="after">
+    .child.value: <t:insert name=".child.value"/>
+    template with .child: <t:insert name="template" with=".child"/>
+  </t:let>
+  <t:let name="data.child.value">data</t:let>
+  <body>
+    <ul>
+      <li>before missing: <t:insert name="before" with="data"/></li>
+      <t:let name="before.child.value">before</t:let>
+      <li>before present with data: <t:insert name="before" with="data"/></li>
+      <li>before present: <t:insert name="before"/></li>
+      <li>after missing: <t:insert name="after" with="data"/></li>
+      <t:let name="after.child.value">after</t:let>
+      <li>after present with data: <t:insert name="after" with="data"/></li>
+      <li>after present: <t:insert name="after"/></li>
+    </ul>
+  </body>
+</html>

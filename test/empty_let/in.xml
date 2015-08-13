@@ -1,1 +1,1 @@
-<html><t:let name="x"/><t:insert name="x"/></html>
+<html><t:let name="x"/><t:insert name="x">No x</t:insert></html>

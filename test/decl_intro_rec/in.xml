@@ -1,5 +1,5 @@
 <html>
-  <t:let name="x"><t:insert name="x"/></t:let>
   <t:let name="intro"><t:insert name="x"/></t:let>
+  <t:let name="x"><t:insert name="x"/></t:let>
   <t:insert name="intro"/>
 </html>

@@ -1,0 +1,4 @@
+blue: in.xml: template error:
+Default value for unbound @with 'quux' already expanded
+from file 'in.xml', line 5, column 40
+included as 'bar' from file 'in.xml', line 5, column 61

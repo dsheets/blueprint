@@ -1,0 +1,68 @@
+<html>
+  <body>
+    
+      <table>
+        <thead>
+          <tr>
+            <td/>
+            
+      <th>5</th>
+      
+      <th>6</th>
+      
+      <th>7</th>
+      
+    
+    
+    
+          </tr>
+        </thead>
+        <tbody>
+          
+      <tr>
+        <th>0</th>
+        
+      <td>(
+          0
+        ,5)</td>
+      
+      <td>(
+          0
+        ,6)</td>
+      
+      <td>(
+          0
+        ,7)</td>
+      
+    
+    
+    
+      </tr>
+      
+      <tr>
+        <th>1</th>
+        
+      <td>(
+          1
+        ,5)</td>
+      
+      <td>(
+          1
+        ,6)</td>
+      
+      <td>(
+          1
+        ,7)</td>
+      
+    
+    
+    
+      </tr>
+      
+    
+    
+        </tbody>
+      </table>
+    
+  </body>
+</html>

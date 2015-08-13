@@ -1,5 +1,4 @@
 blue: in.xml: template error:
-No value for hole named 'omega'
+Disallowed expansion of 'omega'
 from file 'in.xml', line 3, column 27
-included as 'omega' from file 'in.xml', line 3, column 27
 included as 'omega' from file 'in.xml', line 5, column 25

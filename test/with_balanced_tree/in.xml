@@ -1,0 +1,25 @@
+<html>
+  <t:let name="list">
+    <t:let name=".head">0</t:let>
+    <t:let name=".tail">
+      <t:let name=".head">1</t:let>
+      <t:let name=".tail">
+        <t:let name=".head">2</t:let>
+      </t:let>
+    </t:let>
+  </t:let>
+  <body>
+    <t:let name="level">
+      <div class="level">
+        <div class="node"><t:insert name=".head"/></div>
+        <div class="left">
+          <t:insert name="level" with=".tail"><t:seq/></t:insert>
+        </div>
+        <div class="right">
+          <t:insert name="level" with=".tail"><t:seq/></t:insert>
+        </div>
+      </div>
+    </t:let>
+    <t:insert name="level" with="list"/>
+  </body>
+</html>

@@ -1,0 +1,9 @@
+<html>
+  <body>
+    <t:let name="empty"/>
+    <t:let name="bar">
+      |<t:insert name="foo" with="quux"><t:insert name="bar"/></t:insert>
+    </t:let>
+    <t:insert name="bar"/>
+  </body>
+</html>

@@ -1,6 +1,6 @@
 <html>
   <t:let name="x">
-    <t:insert name="">
+    <t:insert name="missing">
       <t:insert name="y">No 'y'!</t:insert>
     </t:insert>
   </t:let>

@@ -1,0 +1,6 @@
+<html>
+  <body>
+    <t:let name="x">x</t:let>
+    <t:insert name="x" with="missing"/>
+  </body>
+</html>

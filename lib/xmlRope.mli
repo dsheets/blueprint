@@ -21,16 +21,19 @@ type 'a deque = 'a list * 'a list
 module type TEMPLATE = sig
   type hole
   type prov
+  type env
 
-  val signals_of_hole : prov:prov -> hole -> Xmlm.signal list
+  val signals_of_hole : prov:prov -> env -> hole -> Xmlm.signal list
 end
 
 module type S = sig
   type hole
   type prov
+  type env
   type t
-  type 'a patch = 'a -> prov -> hole -> ('a * t) option
-  type 'a sink = prov -> 'a -> Xmlm.signal list -> 'a
+  type patch_action = Retain | Recurse of env * t | Replace of t
+  type patch = env -> prov -> hole -> patch_action
+  type 'out sink = prov -> 'out -> Xmlm.signal list -> 'out
 
   val of_data : prov:prov -> string -> t
 
@@ -48,6 +51,10 @@ module type S = sig
 
   val empty : t
 
+  val is_empty : t -> bool
+
+  val map_signals : (Xmlm.signal list -> Xmlm.signal list) -> t -> t
+
   val optimize : t -> t
 
   val of_tree :
@@ -58,13 +65,15 @@ module type S = sig
 
   val map_prov : (prov -> prov) -> t -> t
 
-  val patch : 'a patch -> 'a -> t -> t
+  val patch : patch -> env -> t -> t
 
   val to_stream :
-    patch:'a patch -> sink:(prov -> 'out -> Xmlm.signal list -> 'out) -> 'a ->
-    'out -> t -> 'out
+    patch:patch -> sink:'out sink -> env -> 'out -> t -> 'out
 
-  val to_list : patch:'a patch -> 'a -> t -> Xmlm.signal list
+  val to_list : patch:patch -> env -> t -> Xmlm.signal list
 end
 
-module Make(M : TEMPLATE) : S with type hole = M.hole and type prov = M.prov
+module Make(M : TEMPLATE) : S
+  with type hole = M.hole
+   and type prov = M.prov
+   and type env  = M.env

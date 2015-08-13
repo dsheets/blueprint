@@ -15,8 +15,6 @@
  *
  *)
 
-open OUnit
-
 type result = Success | Error | Trouble
 type return = {
   blue : result;
@@ -73,8 +71,8 @@ let run_diff_test ~channel_fn ~dir ~result env =
 let run_test ~expected_exit ~channel_fn ~dir ~result ~env ~name =
   let run_diff = run_diff_test ~channel_fn ~dir ~result in
   let (test_exit, diff_exit) = run_diff env in
-  assert_equal ~msg:("exit"^name) ~printer:string_of_int expected_exit test_exit;
-  assert_equal ~msg:("diff"^name) ~printer:string_of_int 0 diff_exit
+  Alcotest.(check int ("exit"^name) expected_exit test_exit);
+  Alcotest.(check int ("diff"^name) 0 diff_exit)
 
 let run_success_test dir name env () =
   let channel_fn f fd = with_stdout f ~stdout:fd in
@@ -132,8 +130,8 @@ Alcotest.run "blue" [
     "decl_hole_open";
     "decl_hole_open_chained";
     "decl_hole_closed";
+    "decl_hole_closed_scope";
     "decl_dup";
-    "closure_shadow";
   ];
 
   "Composition", success_tests [
@@ -143,6 +141,8 @@ Alcotest.run "blue" [
     "compose3";
     "compose_stdin";
     "compose2_closure";
+    "compose2_closure_nonlocal";
+    "compose2_closure_shadow";
   ];
 
   "Default", success_tests [
@@ -190,6 +190,33 @@ Alcotest.run "blue" [
     "shadowed_parent";
   ];
 
+(*
+  "Link", success_tests [
+    "link";
+    "link_child";
+    "link_default";
+    "link_list";
+    "link_list_alt";
+    "link_balanced_tree";
+    "link_hetero_tree";
+    "link_matrix";
+    "link_accessible_link";
+    "link_cartesian_product";
+  ];
+*)
+
+  "With", success_tests [
+    "with";
+    "with_child";
+    "with_rope_child";
+    "with_default";
+    "with_list";
+    "with_list_alt";
+    "with_balanced_tree";
+    "with_matrix";
+    "with_accessible";
+  ];
+
   "Error", tests [
     "bad_xml_no_close", error;
     "self_hole", partial;
@@ -198,13 +225,18 @@ Alcotest.run "blue" [
     "bad_insert_name", error;
     "bad_let_name", error;
     "bad_ident_comma", error;
+    "bad_with", partial;
     "top_seq_multi", error;
-    "decl_rec", partial;
-    "decl_mutual_rec", partial;
-    "decl_intro_rec", partial;
+    "decl_rec", error;
+    "decl_mutual_rec", error;
+    "decl_intro_rec", error;
     "bad_compose_scope", partial;
-    "compose3_rec", partial;
+    "compose3_rec", error;
     "default_empty_insert", partial;
+    "default_rec", error;
+    "with_eloop", error;
+    "with_eloop_child", partial;
+    (*"default_rec_link", error;*)
     "bad_attr_name", error;
     "attr_open", partial;
     "attr_floating", error;

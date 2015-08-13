@@ -1,0 +1,6 @@
+<html>
+  <t:let name="x">x</t:let>
+  <body>
+    <t:insert name="x" with="data">No x with data.</t:insert>
+  </body>
+</html>

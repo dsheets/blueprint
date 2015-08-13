@@ -1,0 +1,11 @@
+<html>
+  <body>
+    <p>
+      <t:let name="p">
+        (<t:insert name="x">X</t:insert>, <t:insert name="y">Y</t:insert>, <t:insert name="z">Z</t:insert>)
+      </t:let>
+      <t:let name="y">y</t:let>
+      a.p = <t:insert name="a.w"/>
+    </p>
+  </body>
+</html>

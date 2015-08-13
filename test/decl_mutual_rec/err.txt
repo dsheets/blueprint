@@ -1,7 +1,6 @@
 blue: in.xml: template error:
-No value for hole named 'c'
+Disallowed expansion of 'c'
 from file 'in.xml', line 6, column 23
-included as 'c' from file 'in.xml', line 6, column 23
 included as 'b' from file 'in.xml', line 3, column 23
 included as 'a' from file 'in.xml', line 9, column 23
 included as 'c' from file 'in.xml', line 11, column 21

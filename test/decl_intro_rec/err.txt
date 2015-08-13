@@ -1,7 +1,5 @@
 blue: in.xml: template error:
-No value for hole named 'x'
-from file 'in.xml', line 2, column 37
-included as 'x' from file 'in.xml', line 2, column 37
-included as 'x' from file 'in.xml', line 2, column 37
-included as 'x' from file 'in.xml', line 3, column 41
+Disallowed expansion of 'x'
+from file 'in.xml', line 3, column 37
+included as 'x' from file 'in.xml', line 2, column 41
 included as 'intro' from file 'in.xml', line 4, column 25

@@ -1,6 +1,5 @@
 REC
 
-PKG ounit
 PKG alcotest
 
 S .

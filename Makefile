@@ -4,8 +4,7 @@ blueprint.cmi blueprint.cmti \
 xmlRope.cmi xmlRope.cmti
 .PHONY: all lib tool install clean blue.native $(PRODUCTS) test
 
-OCAMLBUILD=ocamlbuild -use-ocamlfind -cflags -w,@f@p@u@y,-bin-annot \
-		-Is cli,unix,lib
+OCAMLBUILD=ocamlbuild -use-ocamlfind -Is cli,unix,lib
 
 DESCRN=$(shell [ -d .git ] && git describe --tags --always || cat blueprint.version)
 DESCR=$(shell echo "$(DESCRN)" | tr -d '\n')

@@ -1,0 +1,42 @@
+<html>
+  <body>
+    <ul>
+      <li>before missing: 
+    .child.value: data
+    template with .child: 
+    <b>data</b>
+  
+  </li>
+      <li>before present with data: 
+    .child.value: data
+    template with .child: 
+    <b>data</b>
+  
+  </li>
+      <li>before present: 
+    .child.value: before
+    template with .child: 
+    <b>before</b>
+  
+  </li>
+      <li>after missing: 
+    .child.value: data
+    template with .child: 
+    <b>data</b>
+  
+  </li>
+      <li>after present with data: 
+    .child.value: data
+    template with .child: 
+    <b>data</b>
+  
+  </li>
+      <li>after present: 
+    .child.value: after
+    template with .child: 
+    <b>after</b>
+  
+  </li>
+    </ul>
+  </body>
+</html>

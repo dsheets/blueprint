@@ -1,7 +1,7 @@
 <html>
   <t:let name="x">
     <t:let name="z">Z</t:let>
-    <t:insert name="">
+    <t:insert name="missing">
       <t:insert name="y"/>
     </t:insert>
   </t:let>

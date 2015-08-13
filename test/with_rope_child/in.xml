@@ -1,0 +1,11 @@
+<html>
+  <t:let name="f">
+    <t:insert name=".fchild">No .fchild</t:insert>
+    <t:insert name=".child">No .child</t:insert>
+  </t:let>
+  <body>
+    <t:let name="f.fchild">fchild</t:let>
+    <t:let name="has_child.child">child</t:let>
+    <t:insert name="f" with="has_child"/>
+  </body>
+</html>

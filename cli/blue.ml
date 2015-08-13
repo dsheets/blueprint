@@ -64,8 +64,8 @@ let rec compose prev_bindings partial = function
     )
   | file::files ->
     (* template is ignored in all but the last file *)
-    let bindings = Blueprint.Scope.children (read_blueprint file) in
-    compose (Blueprint.Scope.shadow bindings prev_bindings) partial files
+    let bindings = read_blueprint file in
+    compose (Blueprint.Scope.overlay bindings prev_bindings) partial files
 
 let compose_cmd =
   let doc = "templates to compose, use '-' to read from stdin" in

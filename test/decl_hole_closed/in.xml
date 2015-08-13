@@ -1,10 +1,11 @@
 <html>
-  <t:let name="y"><t:insert name="z"/></t:let>
   <t:let name="x">
     <t:let name="z">Z</t:let>
     <t:insert name="y"/>
   </t:let>
+  <t:let name="y"><t:insert name="z"/></t:let>
   <body>
+    <t:let name="z">z</t:let>
     <p><t:insert name="x"/></p>
   </body>
 </html>
