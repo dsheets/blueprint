@@ -21,6 +21,7 @@
 module Debug = struct
   let scope = 0x01
   let get = 0x02
+  let expand = 0x04
   let v = 0 (*scope lor get*)
 end
 let log tag s = if Debug.v land tag <> 0 then print_endline s
@@ -652,23 +653,23 @@ module Scope = struct
           let rec aux = function
             | { expanded = true } | { parent = None } as n ->
               let scope = { n with expanded = true } in
-              (*log Debug.scope Ident.("expand rebasing "^(to_string original));*)
-              (*log Debug.scope (to_string scope);*)
+              (*log Debug.expand Ident.("expand rebasing "^(to_string original));*)
+              (*log Debug.expand (to_string scope);*)
               let p, scope = rebase scope original in
-              (*log Debug.scope (to_string scope);*)
-              (*log Debug.scope Ident.("expand moving to "
+              (*log Debug.expand (to_string scope);*)
+              (*log Debug.expand Ident.("expand moving to "
                                      ^(to_string (any p))^"@"
                                      ^(to_string (path scope)));*)
               Ok (p, scope)
             | { parent = Some (name,_,_) } as n ->
-              (*log Debug.scope Ident.("expanding up "^name);*)
-              (*log Debug.scope (to_string n);*)
+              (*log Debug.expand Ident.("expanding up "^name);*)
+              (*log Debug.expand (to_string n);*)
               aux (up { n with expanded = true })
           in
           aux target
     in
-    (*log Debug.scope Ident.("entering expand for "^(to_string ident));*)
-    (*log Debug.scope (to_string scope);*)
+    (*log Debug.expand Ident.("entering expand for "^(to_string ident));*)
+    (*log Debug.expand (to_string scope);*)
     match get scope (Ident.any ident) with
     | None -> Err `Empty_hole
     | Some obj -> aux obj
