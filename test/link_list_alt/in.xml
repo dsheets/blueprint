@@ -1,0 +1,33 @@
+<html>
+  <t:let name="list">
+    <t:let name=".head">A</t:let>
+    <t:let name=".tail">
+      <t:let name=".head">B</t:let>
+      <t:let name=".tail">
+        <t:let name=".head">C</t:let>
+        <t:let name=".tail">
+          <t:let name=".head">D</t:let>
+          <t:let name=".tail">
+            <t:let name=".head">E</t:let>
+          </t:let>          
+        </t:let>
+      </t:let>
+    </t:let>
+  </t:let>
+  <body>
+    <t:let name="even">
+      <li class="even"><t:insert name=".head"/></li>
+      <t:link from="odd" to=".tail"/>
+      <t:insert name="odd"><t:seq/></t:insert>
+    </t:let>
+    <t:let name="odd">
+      <li class="odd"><t:insert name=".head"/></li>
+      <t:link from="even" to=".tail"/>
+      <t:insert name="even"><t:seq/></t:insert>
+    </t:let>
+    <ol>
+      <t:link from="even" to="list"/>
+      <t:insert name="even"/>
+    </ol>
+  </body>
+</html>

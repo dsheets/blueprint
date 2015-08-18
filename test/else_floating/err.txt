@@ -1,0 +1,2 @@
+blue: in.xml: template error:
+line 1, column 8: the else tag is not attached to an if tag

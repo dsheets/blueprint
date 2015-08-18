@@ -1,0 +1,22 @@
+<html>
+  <body>
+    <ol>
+      
+      <li class="even">A</li>
+      
+      <li class="odd">B</li>
+      
+      <li class="even">C</li>
+      
+      <li class="odd">D</li>
+      
+      <li class="even">E</li>
+      <t:insert name="odd"><t:seq/></t:insert>
+    
+    
+    
+    
+    
+    </ol>
+  </body>
+</html>

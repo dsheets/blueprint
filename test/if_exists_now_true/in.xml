@@ -1,0 +1,8 @@
+<html>
+  <body>
+    <t:let name="exists"/>
+    <t:if exists="exists">
+      <p>Hello, World!</p>
+    </t:if>
+  </body>
+</html>

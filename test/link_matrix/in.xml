@@ -1,0 +1,56 @@
+<html>
+  <t:let name="data.rows">
+    <t:let name=".head">0</t:let>
+    <t:let name=".tail">
+      <t:let name=".head">1</t:let>
+    </t:let>
+  </t:let>
+  <t:let name="data.cols">
+    <t:let name=".head">5</t:let>
+    <t:let name=".tail">
+      <t:let name=".head">6</t:let>
+      <t:let name=".tail">
+        <t:let name=".head">7</t:let>
+      </t:let>
+    </t:let>
+  </t:let>
+  <body>
+    <t:let name="matrix">
+      <table>
+        <thead>
+          <tr>
+            <td/>
+            <t:link from="head" to=".cols"/>
+            <t:insert name="head"/>
+          </tr>
+        </thead>
+        <tbody>
+          <t:link from="trows" to=".rows"/>
+          <t:insert name="trows"/>
+        </tbody>
+      </table>
+    </t:let>
+    <t:let name="head">
+      <th><t:insert name=".head"/></th>
+      <t:link from="head" to=".tail"/>
+      <t:insert name="head"><t:seq/></t:insert>
+    </t:let>
+    <t:let name="trows">
+      <tr>
+        <th><t:insert name=".head"/></th>
+        <t:link from="row.n" to="trows.head"/>
+        <t:link from="row" to="data.cols"/>
+        <t:insert name="row"/>
+      </tr>
+      <t:link from="trows" to=".tail"/>
+      <t:insert name="trows"><t:seq/></t:insert>
+    </t:let>
+    <t:let name="row">
+      <td>(<t:insert name=".n"/>,<t:insert name=".head"/>)</td>
+      <t:link from="row" to=".tail"/>
+      <t:insert name="row"><t:seq/></t:insert>
+    </t:let>
+    <t:link from="matrix" to="data"/>
+    <t:insert name="matrix"/>
+  </body>
+</html>

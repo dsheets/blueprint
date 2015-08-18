@@ -1,0 +1,10 @@
+<t:seq>
+  <t:let name="f">
+    <t:let name=".child">
+      <t:link from="f" to=".child"/>
+      <t:insert name="f"/>
+    </t:let>
+    <t:insert name=".child"/>
+  </t:let>
+  <t:insert name="f"/>
+</t:seq>

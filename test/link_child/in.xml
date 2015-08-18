@@ -1,0 +1,47 @@
+<html>
+  <t:let name="before">
+    .child.value: <t:insert name=".child.value"/>
+    template with .child:
+    <t:if exists=".child">
+      <t:link from="template" to=".child"/>
+      <t:insert name="template"/>
+    </t:if>
+  </t:let>
+  <t:let name="template">
+    <b><t:insert name=".value"/></b>
+    <t:let name=".value">template</t:let>
+  </t:let>
+  <t:let name="after">
+    .child.value: <t:insert name=".child.value"/>
+    template with .child:
+    <t:if exists=".child">
+      <t:link from="template" to=".child"/>
+      <t:insert name="template"/>
+    </t:if>
+  </t:let>
+  <t:let name="data.child.value">data</t:let>
+  <body>
+    <ul>
+      <li>
+        <t:link from="before" to="data"/>
+        before missing: <t:insert name="before"/>
+      </li>
+      <t:let name="before.child.value">before</t:let>
+      <li>
+        <t:link from="before" to="data"/>
+        before present with data: <t:insert name="before"/>
+      </li>
+      <li>before present: <t:insert name="before"/></li>
+      <li>
+        <t:link from="after" to="data"/>
+        after missing: <t:insert name="after"/>
+      </li>
+      <t:let name="after.child.value">after</t:let>
+      <li>
+        <t:link from="after" to="data"/>
+        after present with data: <t:insert name="after"/>
+      </li>
+      <li>after present: <t:insert name="after"/></li>
+    </ul>
+  </body>
+</html>

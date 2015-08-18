@@ -1,0 +1,11 @@
+<html>
+  <t:let name="x">x</t:let>
+  <body>
+    <t:let name="dfl">No x with data.</t:let>
+    <t:if exists="data">
+      <t:link from="x" to="data" />
+      <t:insert name="x"><t:insert name="dfl"/></t:insert>
+    </t:if>
+    <t:else><t:insert name="dfl"/></t:else>
+  </body>
+</html>

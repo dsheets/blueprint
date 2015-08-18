@@ -42,6 +42,7 @@ type error = [
   | `Unknown_tag of Prov.loc * string
   | `Missing_attribute of Prov.loc option * string * string
   | `Floating_attr of Prov.loc * string
+  | `Floating_else of Prov.loc
   | `Data_after_root of Prov.loc option
   | `Element_after_root of Prov.loc option
 ]

@@ -190,20 +190,18 @@ Alcotest.run "blue" [
     "shadowed_parent";
   ];
 
-(*
+
   "Link", success_tests [
     "link";
     "link_child";
+    "link_rope_child";
     "link_default";
     "link_list";
     "link_list_alt";
     "link_balanced_tree";
-    "link_hetero_tree";
     "link_matrix";
-    "link_accessible_link";
-    "link_cartesian_product";
+    "link_accessible";
   ];
-*)
 
   "With", success_tests [
     "with";
@@ -215,6 +213,20 @@ Alcotest.run "blue" [
     "with_balanced_tree";
     "with_matrix";
     "with_accessible";
+  ];
+
+  "If", success_tests [
+    "if_empty";
+    "if_exists_now_false";
+    "if_exists_now_true";
+    "if_exists_false";
+    "if_exists_true";
+    "if_body_stage";
+    "else_body_stage";
+    "if_hole_stage";
+    "else_hole_stage";
+    "if_body_closed";
+    "else_body_closed";
   ];
 
   "Error", tests [
@@ -236,13 +248,15 @@ Alcotest.run "blue" [
     "default_rec", error;
     "with_eloop", error;
     "with_eloop_child", partial;
-    (*"default_rec_link", error;*)
+    "link_eloop", error;
+    "link_eloop_child", partial;
     "bad_attr_name", error;
     "attr_open", partial;
     "attr_floating", error;
     "insert_attr", error;
     "let_attr", error;
     "top_attr", error;
+    "else_floating", error;
   ];
 
   "Trouble", tests [

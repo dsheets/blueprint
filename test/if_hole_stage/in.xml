@@ -1,0 +1,16 @@
+<html>
+  <body>
+    <t:let name="f">
+      <t:if exists="exists">
+        <t:insert name="x"/>
+      </t:if>
+    </t:let>
+    <t:let name="x">x</t:let>
+    <t:let name="g">
+      <t:insert name="f"/>
+    </t:let>
+    <t:let name="x">X!</t:let>
+    <t:let name="exists"/>
+    <p><t:insert name="g"/></p>
+  </body>
+</html>

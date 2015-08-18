@@ -1,0 +1,14 @@
+<html>
+  <body>
+    <t:let name="f">
+      <t:let name="x">x</t:let>
+      <t:if exists="exists">
+        <t:insert name="g"/>
+      </t:if>
+    </t:let>
+    <t:link from="g" to="x"/>
+    <t:let name="x">X!</t:let>
+    <t:let name="exists"/>
+    <p><t:insert name="f"/></p>
+  </body>
+</html>

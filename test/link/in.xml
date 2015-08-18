@@ -1,0 +1,29 @@
+<html>
+  <t:let name="1">
+    <t:let name=".a">a1</t:let>
+    <t:let name=".b">b1</t:let>
+  </t:let>
+  <t:let name="2">
+    <t:let name=".a">a2</t:let>
+    <t:let name=".b">b2</t:let>
+  </t:let>
+  <t:let name="print">
+    <h1><t:insert name=".name"/></h1>
+    <p><t:insert name=".a"/></p>
+    <p><t:insert name=".b"/></p>
+  </t:let>
+  <body>
+    <t:let name="1.name">1</t:let>
+    <t:let name="r">
+      <t:link from="print" to="1"/>
+      <t:insert name="print"/>
+    </t:let>
+    <t:insert name="r"/>
+    <t:let name="2.name">2</t:let>
+    <t:let name="r">
+      <t:link from="print" to="2"/>
+      <t:insert name="print"/>
+    </t:let>
+    <t:insert name="r"/>
+  </body>
+</html>

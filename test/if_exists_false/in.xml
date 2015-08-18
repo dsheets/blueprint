@@ -1,0 +1,11 @@
+<html>
+  <body>
+    <t:let name="t">
+      <t:if exists="missing">
+        <p>Inconceivable!</p>
+      </t:if>
+    </t:let>
+    <t:insert name="t"/>
+    <t:let name="missing"/>
+  </body>
+</html>

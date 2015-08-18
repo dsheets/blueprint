@@ -1,0 +1,7 @@
+<html>
+  <body>
+    <t:if exists="data">
+      <t:insert name="x">No x with data.</t:insert>
+    </t:if><t:else>No x with data.</t:else>
+  </body>
+</html>

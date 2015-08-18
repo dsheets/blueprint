@@ -1,0 +1,3 @@
+blue: in.xml: template error:
+Disallowed traversal of 'f'
+from file 'in.xml'

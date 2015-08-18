@@ -1,0 +1,75 @@
+<html>
+  <body>
+    
+      <div class="level">
+        <div class="node">0</div>
+        <div class="left">
+          
+      <div class="level">
+        <div class="node">1</div>
+        <div class="left">
+          
+      <div class="level">
+        <div class="node">2</div>
+        <div class="left">
+          <t:insert name="level"><t:seq/></t:insert>
+        </div>
+        <div class="right">
+          <t:insert name="level"><t:seq/></t:insert>
+        </div>
+      </div>
+    
+        </div>
+        <div class="right">
+          
+      <div class="level">
+        <div class="node">2</div>
+        <div class="left">
+          <t:insert name="level"><t:seq/></t:insert>
+        </div>
+        <div class="right">
+          <t:insert name="level"><t:seq/></t:insert>
+        </div>
+      </div>
+    
+        </div>
+      </div>
+    
+        </div>
+        <div class="right">
+          
+      <div class="level">
+        <div class="node">1</div>
+        <div class="left">
+          
+      <div class="level">
+        <div class="node">2</div>
+        <div class="left">
+          <t:insert name="level"><t:seq/></t:insert>
+        </div>
+        <div class="right">
+          <t:insert name="level"><t:seq/></t:insert>
+        </div>
+      </div>
+    
+        </div>
+        <div class="right">
+          
+      <div class="level">
+        <div class="node">2</div>
+        <div class="left">
+          <t:insert name="level"><t:seq/></t:insert>
+        </div>
+        <div class="right">
+          <t:insert name="level"><t:seq/></t:insert>
+        </div>
+      </div>
+    
+        </div>
+      </div>
+    
+        </div>
+      </div>
+    
+  </body>
+</html>

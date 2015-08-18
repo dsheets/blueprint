@@ -1,0 +1,4 @@
+<t:seq>
+  <t:link from="f" to="f"/>
+  <t:insert name="f"/>
+</t:seq>

@@ -83,6 +83,7 @@ type error = [
   | `Unknown_tag of Prov.loc * string
   | `Missing_attribute of Prov.loc option * string * string
   | `Floating_attr of Prov.loc * string
+  | `Floating_else of Prov.loc
   | `Data_after_root of Prov.loc option
   | `Element_after_root of Prov.loc option
 ]
@@ -120,6 +121,9 @@ let error_message : error -> string = Printf.(function
   | `Floating_attr (loc, attr) ->
     sprintf "%s: the attribute '%s' is not attached to a start tag"
       (Prov.string_of_loc loc) attr
+  | `Floating_else loc ->
+    sprintf "%s: the else tag is not attached to an if tag"
+      (Prov.string_of_loc loc)
   | `Data_after_root None -> "Data are not allowed after the root element"
   | `Data_after_root (Some loc) ->
     sprintf "%s: data are not allowed after the root element"
@@ -227,6 +231,11 @@ module Ident = struct
       compare_string_list a b
     | { kind = Relative }, { kind = Absolute } -> -1
     | { kind = Absolute }, { kind = Relative } ->  1
+end
+
+module Condition = struct
+  type t =
+    | Exists of Ident.any_t
 end
 
 module StringMap = Map.Make(String)
@@ -677,19 +686,24 @@ module Scope = struct
 end
 
 module Hole = struct
-  type ('rope, 'value) t = {
+  type ('rope, 'value) reference = {
     name : Ident.any_t;
     closure : 'rope Scope.t; (* local scope only *)
     default : 'value option;
     with_ : Ident.absolute_t option; (* only for reserialization *)
   }
+  type ('rope, 'value) t =
+    | Reference of ('rope, 'value) reference
+    | Conditional of Condition.t * 'value * 'value option
 
   let name { name } = name
 
   let new_named ?with_ name closure =
-    { name; default = None; closure; with_; }
+    Reference { name; default = None; closure; with_; }
   let new_valued ?with_ name value closure =
-    { name; default = Some value; closure; with_; }
+    Reference { name; default = Some value; closure; with_; }
+
+  let new_conditional cond body ?els () = Conditional (cond, body, els)
 end
 
 let empty_seq = [ `El_start ((xmlns,"seq"),[]); `El_end ]
@@ -714,73 +728,98 @@ module rec Patch : PATCH
 = struct
   module Rope = Rope
 
+  let exists env ident =
+    let tail_name = Ident.append env.Env.path ident in
+    match Scope.get env.Env.base tail_name with Some _ -> true | None -> false
+
   let rec patch_hole ~partial : Rope.patch =
-    fun env prov hole ->
-      let { Env.base } = env in
-      (*log Debug.scope "scope before overlay";*)
-      (*log Debug.scope (Scope.to_string base);*)
-      (*log Debug.scope "closure before overlay";*)
-      (*log Debug.scope (Scope.to_string hole.Hole.closure);*)
-      let base_path = Scope.path base in
-      let root = Scope.to_root base in
-      let closure_path = Ident.resolve base_path env.Env.path in
-      let closure = hole.Hole.closure in
-      let tail, base =
-        Scope.(rebase (overlay closure root) (Ident.any closure_path))
-      in
-      (*log Debug.scope ("rebase backed off "^Ident.(to_string (any tail)));*)
-      let name = Hole.name hole in
-      (*log Debug.scope Ident.(
-        "expanding "^(to_string name)^"@"^(to_string (any tail))^" with"
-      );*)
-      (*log Debug.scope (Scope.to_string base);*)
-      let tail_name = Ident.append tail name in
-      let env, result =
-        match Scope.get_rope base tail_name with
-        | Err (`Disallowed_traversal ident) ->
-          env,
-          (Err (`Disallowed_traversal (prov, Ident.to_string ident)))
-        | Err `Empty_hole ->
-          let ident = Ident.resolve base_path tail_name in
-          env,
-          (Err (`Empty_hole (Some prov, Ident.(to_string (any ident)))))
-        | Ok rope ->
-          match Scope.expand prov base tail_name tail_name with
-          | Err (`Disallowed_expansion _ | `Dangling_link _) as result ->
-            env, result
+    fun env prov -> function
+      | Hole.Conditional (Condition.Exists exid, body, els) -> Rope.(
+        if exists env exid then Recurse (env, body)
+        else if partial
+        then
+          let patch_hole = patch_hole ~partial in
+          let body = patch patch_hole env body in
+          let els = match els with
+            | Some els -> Some (patch patch_hole env els)
+            | None -> None
+          in
+          let cond = Hole.Conditional (Condition.Exists exid, body, els) in
+          Replace (make_hole ~prov cond)
+        else match els with
+        | Some e -> Recurse (env, e)
+        | None -> Replace empty
+      )
+      | Hole.Reference hole ->
+        let { Env.base } = env in
+        (*log Debug.scope "scope before overlay";*)
+        (*log Debug.scope (Scope.to_string base);*)
+        (*log Debug.scope "closure before overlay";*)
+        (*log Debug.scope (Scope.to_string hole.Hole.closure);*)
+        let base_path = Scope.path base in
+        let root = Scope.to_root base in
+        let closure_path = Ident.resolve base_path env.Env.path in
+        let closure = hole.Hole.closure in
+        let tail, base =
+          Scope.(rebase (overlay closure root) (Ident.any closure_path))
+        in
+        (*log Debug.scope ("rebase backed off "^Ident.(to_string (any tail)));*)
+        let name = Hole.name hole in
+        (*log Debug.scope Ident.(
+          "expanding "^(to_string name)^"@"^(to_string (any tail))^" with"
+          );*)
+        (*log Debug.scope (Scope.to_string base);*)
+        let tail_name = Ident.append tail name in
+        let env, result =
+          match Scope.get_rope base tail_name with
+          | Err (`Disallowed_traversal ident) ->
+            (* TODO: This should build prov for useful backtrace
+               (probably using the link prov somehow) *)
+            env,
+            (Err (`Disallowed_traversal (prov, Ident.to_string ident)))
           | Err `Empty_hole ->
             let ident = Ident.resolve base_path tail_name in
-            env, (Err (`Empty_hole (Some prov, Ident.(to_string (any ident)))))
-          | Ok (path, base) -> { Env.base; path; }, Ok rope
-      in
-      match result with
-      | Ok t ->
-        let t = Rope.map_prov (fun parent ->
-          (* TODO: this potential replacement seems dodgy *)
-          let ident = Ident.resolve base_path tail_name in
-          Prov.with_incl parent Ident.(to_string (any ident)) prov
-        ) t in
-        Rope.Recurse (env, t)
-      | Err err ->
-        let { Hole.default } = hole in
-        match default with
-        | Some t -> begin match err with
-          | #binding_error ->
-            if partial
-            then
-              let patch_hole = patch_hole ~partial in
-              Rope.Replace (Rope.make_hole ~prov {
-                hole with Hole.default = Some (Rope.patch patch_hole env t)
-              })
-            else Rope.Recurse (env, t)
-          | _ ->
-            raise (Error err)
-        end
-        | None -> match err with
-          | #binding_error when partial ->
-            let name = Ident.(any (resolve base_path tail_name)) in
-            Rope.Replace (Rope.make_hole ~prov { hole with Hole.name })
-          | _ -> raise (Error err)
+            env,
+            (Err (`Empty_hole (Some prov, Ident.(to_string (any ident)))))
+          | Ok rope ->
+            match Scope.expand prov base tail_name tail_name with
+            | Err (`Disallowed_expansion _ | `Dangling_link _) as result ->
+              env, result
+            | Err `Empty_hole ->
+              let ident = Ident.resolve base_path tail_name in
+              env, (Err (`Empty_hole (Some prov, Ident.(to_string (any ident)))))
+            | Ok (path, base) -> { Env.base; path; }, Ok rope
+        in
+        match result with
+        | Ok t ->
+          let t = Rope.map_prov (fun parent ->
+            (* TODO: this potential replacement seems dodgy *)
+            let ident = Ident.resolve base_path tail_name in
+            Prov.with_incl parent Ident.(to_string (any ident)) prov
+          ) t in
+          Rope.Recurse (env, t)
+        | Err err ->
+          let { Hole.default } = hole in
+          match default with
+          | Some t -> begin match err with
+            | #binding_error ->
+              if partial
+              then
+                let patch_hole = patch_hole ~partial in
+                Rope.Replace (Rope.make_hole ~prov (Hole.Reference {
+                  hole with Hole.default = Some (Rope.patch patch_hole env t)
+                }))
+              else Rope.Recurse (env, t)
+            | _ ->
+              raise (Error err)
+          end
+          | None -> match err with
+            | #binding_error when partial ->
+              let name = Ident.(any (resolve base_path tail_name)) in
+              Rope.Replace (Rope.make_hole ~prov (Hole.Reference {
+                hole with Hole.name
+              }))
+            | _ -> raise (Error err)
 end
 
 and Template : XmlRope.TEMPLATE
@@ -792,25 +831,38 @@ and Template : XmlRope.TEMPLATE
   type prov = Prov.t
   type env  = Rope.t Env.t
 
+  let rec attrs_of_cond = Condition.(function
+    | Exists exid -> [("","exists"),Ident.(to_string exid)]
+  )
+
   (* TODO: closure bindings? *)
-  let signals_of_hole ~prov (env : env) hole = Hole.(
-    let base_path = Scope.path env.Env.base in
-    let ident = Ident.(resolve (resolve base_path env.Env.path) hole.name) in
-    let attrs = (("","name"),Ident.(to_string (any ident)))::(
-      match hole.with_ with
-      | None -> []
-      | Some with_ -> [("","with"),Ident.(to_string (any with_))]
-    ) in
-    (`El_start ((xmlns,"insert"),attrs))::
-    begin match hole.default with
-      | None -> [ `El_end ]
-      | Some rope -> Rope.(
-        let patch = Patch.patch_hole ~partial:true in
+  let signals_of_hole ~prov (env : env) = Hole.(function
+    | Conditional (cond, body, els) ->
+      let attrs = attrs_of_cond cond in
+      let patch = Patch.patch_hole ~partial:true in
+      (`El_start ((xmlns,"if"),attrs))::begin
         (* TODO: check the env ctxt *)
-        let default = to_list ~patch env rope in
-        match default with [] -> empty_seq | _ -> default
-      ) @ [ `El_end ]
-    end
+        Rope.to_list ~patch env body
+      end @ [ `El_end ] @ (match els with None -> [] | Some e ->
+        (`El_start ((xmlns,"else"),[]))::(Rope.to_list ~patch env e)@[`El_end])
+    | Reference hole ->
+      let base_path = Scope.path env.Env.base in
+      let ident = Ident.(resolve (resolve base_path env.Env.path) hole.name) in
+      let attrs = (("","name"),Ident.(to_string (any ident)))::(
+        match hole.with_ with
+        | None -> []
+        | Some with_ -> [("","with"),Ident.(to_string (any with_))]
+      ) in
+      (`El_start ((xmlns,"insert"),attrs))::
+      begin match hole.default with
+        | None -> [ `El_end ]
+        | Some rope -> Rope.(
+          let patch = Patch.patch_hole ~partial:true in
+          (* TODO: check the env ctxt *)
+          let default = to_list ~patch env rope in
+          match default with [] -> empty_seq | _ -> default
+        ) @ [ `El_end ]
+      end
   )
 
 end
@@ -1016,19 +1068,21 @@ let root_ctxt = {
 }
 
 let add_link (path : Ident.absolute_t) b from to_ prov loc =
+  let path_any = Ident.any path in
   let prov = Prov.with_loc prov loc in
   match from, to_ with
-  | None, None -> Ident.here, b (* TODO: something? *)
+  | None, None -> (Ident.here, b), path_any (* TODO: something? *)
   | Some src, None ->
-    Scope.link b (Ident.of_string loc src) path (Ident.any path) prov
+    let src = Ident.of_string loc src in
+    Scope.link b src path path_any prov, src
   | None, Some dst ->
     let dst = Ident.of_string loc dst in
-    Scope.link b (Ident.any path) path dst prov
+    Scope.link b path_any path dst prov, path_any
   | Some src, Some dst ->
     let src = Ident.of_string loc src in
     let dst = Ident.of_string loc dst in
     (*log Debug.scope Ident.("link "^(to_string src)^" -> "^(to_string dst));*)
-    Scope.link b src path dst prov
+    Scope.link b src path dst prov, src
 
 let of_stream ~prov ~source =
   let open Scope in
@@ -1073,8 +1127,8 @@ let of_stream ~prov ~source =
         | None -> ctxt, (XmlStack.peek ctxt.local), true
         | Some with_ ->
           let local = XmlStack.peek ctxt.local in
-          let _,local = add_link ctxt.path local (Some name) to_ prov loc in
-          let t,s = add_link ctxt.path ctxt.scope (Some name) to_ prov loc in
+          let (_,local),_ = add_link ctxt.path local (Some name) to_ prov loc in
+          let (t,s),_ = add_link ctxt.path ctxt.scope (Some name) to_ prov loc in
           { ctxt with scope = s; tail = t },
           local,
           match get ctxt.scope Ident.(any (append t with_)) with
@@ -1094,7 +1148,7 @@ let of_stream ~prov ~source =
           (*log Debug.scope ("local closure");*)
           (*log Debug.scope (Scope.to_string local);*)
           let stack, ctxth, c =
-            add_hole stack seq ctxtb local acc name ?with_ literal loc
+            add_hole stack ctxtb local acc name ?with_ literal loc
           in
           let ctxt = { ctxth with scope = ctxt.scope; tail = ctxt.tail; } in
           run stack [] ctxt c
@@ -1108,7 +1162,11 @@ let of_stream ~prov ~source =
           | Err (`Disallowed_expansion x) ->
             raise (Error (`Disallowed_expansion x))
           | Err (`Dangling_link x) ->
-            raise (Error (`Dangling_link x))
+            let stack, ctxth, c =
+              add_hole stack ctxtb local acc name ?with_ literal loc
+            in
+            let ctxt = { ctxth with scope = ctxt.scope; tail = ctxt.tail; } in
+            run stack [] ctxt c
           | Ok (tail, base) ->
             let template = Rope.map_prov (fun parent ->
               let ident_s = Ident.to_string ident in
@@ -1150,8 +1208,18 @@ let of_stream ~prov ~source =
       let subctxt = { ctxt with acc = Rope.empty } in
       (* TODO: Warn that this is being thrown away (for now)? *)
       let acc, _content = run [0,[]] [] subctxt (source acc) in
-      let tail, scope = add_link ctxt.path ctxt.scope from to_ prov loc in
-      run stack seq { ctxt with scope; tail; } (source acc)
+      let local = XmlStack.peek ctxt.local in
+      let (ltl, local), lpath = add_link ctxt.path local from to_ prov loc in
+      let ltl = Ident.append ltl lpath in
+      (*log Debug.scope ("link local for "^Ident.(to_string ltl));*)
+      (*log Debug.scope (Scope.to_string local);*)
+      let link_id = Ident.resolve (path local) ltl in
+      let link = get_obj local ltl in
+      let local = XmlStack.add_binding link_id link ctxt.local in
+      (*log Debug.scope (Scope.to_string (XmlStack.peek local));*)
+      let (tail, scope),_ = add_link ctxt.path ctxt.scope from to_ prov loc in
+      let stack = XmlStack.save_bindings ctxt.scope stack in
+      run stack seq { ctxt with scope; tail; local; } (source acc)
 
     | "seq" ->
       let ctxt = { ctxt with local = XmlStack.push ctxt.local } in
@@ -1195,11 +1263,55 @@ let of_stream ~prov ~source =
       (*log Debug.scope (Scope.to_string scope);*)
       run stack seq ctxt (source acc)
 
+    | "if" ->
+      let exists = get_attr_opt attrs "exists" in
+      let insert_now () =
+        let ctxt = { ctxt with local = XmlStack.push ctxt.local } in
+        run (XmlStack.push stack) seq ctxt (source acc)
+      in
+      let rec check_for_else ctxt c = match c with
+        | _, None -> c, None
+        | acc, Some (loc, el) -> match el with
+          | `El_start ((ns,"else"),attrs) when ns=xmlns ->
+            (* TODO: check for empty attrs *)
+            let acc, elseb = run [0,[]] [] ctxt (source acc) in
+            source acc, Some elseb
+          | `Data d when is_ws d -> check_for_else ctxt (source acc)
+          | (`El_start _ | `El_end | `Dtd _ | `Data _) -> c, None
+      in
+      let defer_on cond =
+        (* TODO: Test local closure capture! *)
+        let subctxt = { ctxt with acc = Rope.empty } in
+        let acc, body = run [0,[]] [] subctxt (source acc) in
+        let body_rope = default_rope body.rope in
+        let subctxt = { ctxt with acc = Rope.empty } in
+        let c, else_body = check_for_else subctxt (source acc) in
+        let els = match else_body with
+          | Some e -> Some (default_rope e.rope)
+          | None -> None
+        in
+        let hole = Hole.new_conditional cond body_rope ?els () in
+        let literal = of_list ~prov (List.rev seq) in
+        let rope = ctxt.acc ++ literal ++ (make_hole ~prov hole) in
+        run stack [] { ctxt with acc = rope } c
+      in
+      begin match exists with
+        | None -> insert_now ()
+        | Some id ->
+          let exid = Ident.of_string loc id in
+          match Scope.get ctxt.scope exid with
+          | Some _ -> insert_now ()
+          | None -> defer_on (Condition.Exists exid)
+      end
+
+    | "else" ->
+      raise (Error (`Floating_else loc))
+
     | el ->
       raise (Error (`Unknown_tag (loc, el)))
   )
 
-  and add_hole stack seq ctxt local acc name ?with_ literal loc =
+  and add_hole stack ctxt local acc name ?with_ literal loc =
     let open Rope in
     let prov = Prov.with_loc prov loc in
     match source acc with
