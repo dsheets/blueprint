@@ -1330,3 +1330,32 @@ let of_stream ~prov ~source =
   in
   fun acc ->
     run XmlStack.empty [] root_ctxt (source acc)
+
+
+module Tree = struct
+  let of_kv kv = List.fold_left (fun scope (key, obj) ->
+    (* TODO: raise if ident is invalid *)
+    Scope.put scope (Ident.of_string (-1,-1) key) (Scope.Scope obj)
+  ) Scope.empty kv
+
+  let of_string s = Scope.({ empty with rope = Lazy.from_fun (fun () ->
+    let prov = Prov.({
+      src = Stream "Blueprint.Tree.of_string";
+      loc = None;
+      incl = None;
+    }) in
+    Some (Rope.of_data ~prov s)
+  ); })
+
+  let of_kv_string kv =
+    of_kv (List.map (fun (car,cdr) -> (car, of_string cdr)) kv)
+
+  let of_list list =
+    let list = List.rev list in
+    match List.fold_left (fun scope next -> match scope with
+      | Some scope -> Some (of_kv ["head", next; "tail", scope])
+      | None -> Some (of_kv ["head", next])
+    ) None list with
+    | Some t -> t
+    | None -> Scope.empty
+end
