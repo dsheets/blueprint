@@ -79,6 +79,8 @@ module Scope : sig
     | Link of link
     | Stack of 'rope obj list
 
+  val to_string : 'a t -> string
+
   val empty : 'a t
 
   val template : 'rope t -> 'rope option Lazy.t
