@@ -1,8 +1,11 @@
 PRODUCTS=\
+blueprint.a \
 blueprint.cma blueprint.cmxa blueprint.cmxs \
 blueprint.cmi blueprint.cmti \
 xmlRope.cmi xmlRope.cmti
-.PHONY: all lib tool install clean blue.native $(PRODUCTS) test
+UNIX_PRODS=\
+blueprint_unix.cmi blueprint_unix.cmti
+.PHONY: all lib tool install clean blue.native $(PRODUCTS) $(UNIX_PRODS) test
 
 OCAMLBUILD=ocamlbuild -use-ocamlfind -Is cli,unix,lib
 
@@ -17,12 +20,13 @@ DIRTY=false
 endif
 
 all: lib tool
-lib: $(PRODUCTS)
+lib: $(PRODUCTS) $(UNIX_PRODS)
 tool: blue
 
 install: lib lib/META
 	ocamlfind install blueprint lib/META lib/blueprint.mli \
-		$(addprefix _build/lib/,$(PRODUCTS))
+		$(addprefix _build/lib/,$(PRODUCTS)) \
+		$(addprefix _build/unix/,$(UNIX_PRODS))
 
 lib/META: lib/META.in
 	sed -e "s/%{blueprint:version}%/$(DESCR)/" < lib/META.in > lib/META
@@ -38,6 +42,9 @@ blueprint.cmxa:
 
 blueprint.cmxs:
 	$(OCAMLBUILD) blueprint.cmxs
+
+%.cmi %.cmti:
+	$(OCAMLBUILD) $@
 
 blue: blue.native
 	ln -f blue.native blue
