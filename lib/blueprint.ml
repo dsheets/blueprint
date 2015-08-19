@@ -452,16 +452,16 @@ module Scope = struct
       get scope (Ident.of_string (-1,-1) name)
     with Error (`Bad_ident _) -> None
 
-  let rec last_link_target = function
-    | [] -> Ident.here
-    | (Link { target; })::_ -> target
-    | (Scope _)::objs -> last_link_target objs
-    | (Stack s)::objs -> last_link_target (s@objs)
+  let rec last_link_base_target = function
+    | [] -> None, Ident.here
+    | (Link { base; target; })::_ -> Some base, target
+    | (Scope _)::objs -> last_link_base_target objs
+    | (Stack s)::objs -> last_link_base_target (s@objs)
 
-  let link_target scope base = match get scope (Ident.any base) with
-    | None | Some (Stack []) | Some (Scope _) -> Ident.here
-    | Some (Link { target }) -> target
-    | Some (Stack objs) -> last_link_target objs
+  let link_base_target scope base = match get scope (Ident.any base) with
+    | None | Some (Stack []) | Some (Scope _) -> None, Ident.here
+    | Some (Link { base; target; }) -> Some base, target
+    | Some (Stack objs) -> last_link_base_target objs
 
   (* Links have special behavior when stacking: their targets are
      resolved against the *current* topmost target of their base. *)
@@ -470,13 +470,14 @@ module Scope = struct
     | Stack [] -> Stack rest
     | Stack (x::xs) -> stack scope x (xs@rest)
     | Link ({ base; target } as link) ->
-      let target = match link_target scope base with
-        | { Ident.kind = Ident.Relative } as last_target ->
-          Ident.(any (append last_target target))
-        | { Ident.kind = Ident.Absolute } as last_target ->
-          Ident.(any (resolve last_target target))
+      let base_of_base_opt = function None -> base | Some base -> base in
+      let base, target = match link_base_target scope base with
+        | base_opt, ({ Ident.kind = Ident.Relative } as last_target) ->
+          base_of_base_opt base_opt, Ident.(any (append last_target target))
+        | base_opt, ({ Ident.kind = Ident.Absolute } as last_target) ->
+          base_of_base_opt base_opt, Ident.(any (resolve last_target target))
       in
-      Stack (Link { link with target }::rest)
+      Stack (Link { link with base; target }::rest)
 
   let rec overlay a' b' = {
     rope = merge_lazy_option a'.rope b'.rope;
@@ -636,7 +637,7 @@ module Scope = struct
   (* expand marks all ancestor scopes of ident in scope as
      expanded. It returns a rebase pair of the original location. It
      can also fail to expand due to an empty hole or a dangling link. *)
-  let rec expand prov scope original ident =
+  let rec expand prov scope (original : Ident.absolute_t) ident =
     let rec aux = function
       | Link { base; target; } ->
         let target = Ident.(any (resolve base target)) in
@@ -645,7 +646,7 @@ module Scope = struct
       | Stack ((Link link as obj)::bot) ->
         begin match aux obj with
           | Err `Empty_hole ->
-            let original = Ident.to_string original in
+            let original = Ident.(to_string (any original)) in
             let target = Ident.(to_string (any link.target)) in
             Err (`Dangling_link (prov, original, target))
           | (Ok _ | Err _) as r -> r
@@ -664,7 +665,7 @@ module Scope = struct
               let scope = { n with expanded = true } in
               (*log Debug.expand Ident.("expand rebasing "^(to_string original));*)
               (*log Debug.expand (to_string scope);*)
-              let p, scope = rebase scope original in
+              let p, scope = rebase scope (Ident.any original) in
               (*log Debug.expand (to_string scope);*)
               (*log Debug.expand Ident.("expand moving to "
                                      ^(to_string (any p))^"@"
@@ -763,13 +764,16 @@ module rec Patch : PATCH
         let tail, base =
           Scope.(rebase (overlay closure root) (Ident.any closure_path))
         in
-        (*log Debug.scope ("rebase backed off "^Ident.(to_string (any tail)));*)
+        (*log Debug.scope Ident.("rebase backed off "
+                             ^(to_string (any tail))
+                             ^" from "^(to_string (any closure_path)));*)
         let name = Hole.name hole in
         (*log Debug.scope Ident.(
           "expanding "^(to_string name)^"@"^(to_string (any tail))^" with"
           );*)
         (*log Debug.scope (Scope.to_string base);*)
         let tail_name = Ident.append tail name in
+        let ident = Ident.resolve base_path tail_name in
         let env, result =
           match Scope.get_rope base tail_name with
           | Err (`Disallowed_traversal ident) ->
@@ -778,15 +782,13 @@ module rec Patch : PATCH
             env,
             (Err (`Disallowed_traversal (prov, Ident.to_string ident)))
           | Err `Empty_hole ->
-            let ident = Ident.resolve base_path tail_name in
             env,
             (Err (`Empty_hole (Some prov, Ident.(to_string (any ident)))))
           | Ok rope ->
-            match Scope.expand prov base tail_name tail_name with
+            match Scope.expand prov base ident tail_name with
             | Err (`Disallowed_expansion _ | `Dangling_link _) as result ->
               env, result
             | Err `Empty_hole ->
-              let ident = Ident.resolve base_path tail_name in
               env, (Err (`Empty_hole (Some prov, Ident.(to_string (any ident)))))
             | Ok (path, base) -> { Env.base; path; }, Ok rope
         in
@@ -794,7 +796,6 @@ module rec Patch : PATCH
         | Ok t ->
           let t = Rope.map_prov (fun parent ->
             (* TODO: this potential replacement seems dodgy *)
-            let ident = Ident.resolve base_path tail_name in
             Prov.with_incl parent Ident.(to_string (any ident)) prov
           ) t in
           Rope.Recurse (env, t)
@@ -1115,8 +1116,9 @@ let of_stream ~prov ~source =
       let literal = of_list ~prov (List.rev seq) in
       let name = get_attr loc "insert" attrs "name" in
       let to_= get_attr_opt attrs "with" in
+      let path = Ident.resolve ctxt.path ctxt.tail in
       let with_ = match to_ with
-        | Some to_ -> Some Ident.(resolve ctxt.path (of_string loc to_))
+        | Some to_ -> Some Ident.(resolve path (of_string loc to_))
         | None -> None
       in
       (*log Debug.scope ("insert "^name^(match to_ with
@@ -1127,18 +1129,20 @@ let of_stream ~prov ~source =
         | None -> ctxt, (XmlStack.peek ctxt.local), true
         | Some with_ ->
           let local = XmlStack.peek ctxt.local in
-          let (_,local),_ = add_link ctxt.path local (Some name) to_ prov loc in
-          let (t,s),_ = add_link ctxt.path ctxt.scope (Some name) to_ prov loc in
+          (* TODO: does add_link need to take a tail? *)
+          let _path, local = Scope.rebase local (Ident.any path) in
+          let (_,local),_ = add_link path local (Some name) to_ prov loc in
+          let (t,s),_ = add_link path ctxt.scope (Some name) to_ prov loc in
           { ctxt with scope = s; tail = t },
-          local,
-          match get ctxt.scope Ident.(any (append t with_)) with
+          Scope.to_root local,
+          match get s Ident.(any (append t with_)) with
           | Some _ -> true
           | None -> false
       in
       let name = Ident.of_string loc name in
-      let ident = Ident.resolve ctxt.path name in
+      let ident = Ident.resolve path name in
       (*log Debug.scope Ident.("getting rope for "^(to_string (any ident)));*)
-      begin match get_rope ctxt.scope Ident.(any (append ctxt.tail ident)),
+      begin match get_rope ctxt.scope (Ident.any ident),
                   with_exists with
         | Err (`Disallowed_traversal err), _ ->
           raise (Error (`Disallowed_traversal (prov, Ident.to_string err)))
@@ -1154,11 +1158,10 @@ let of_stream ~prov ~source =
           run stack [] ctxt c
         | Ok template, true ->
           let prov = Prov.with_loc prov loc in
-          let ident = Ident.any ident in
-          let id = Ident.(append ctxtb.tail ident) in
-          match Scope.expand prov ctxtb.scope id id with
+          let id = Ident.any ident in
+          match Scope.expand prov ctxtb.scope ident id with
           | Err `Empty_hole ->
-            raise (Error (`Empty_hole (Some prov, Ident.to_string ident)))
+            raise (Error (`Empty_hole (Some prov, Ident.to_string id)))
           | Err (`Disallowed_expansion x) ->
             raise (Error (`Disallowed_expansion x))
           | Err (`Dangling_link x) ->
@@ -1169,7 +1172,7 @@ let of_stream ~prov ~source =
             run stack [] ctxt c
           | Ok (tail, base) ->
             let template = Rope.map_prov (fun parent ->
-              let ident_s = Ident.to_string ident in
+              let ident_s = Ident.to_string id in
               Prov.append_incl parent ident_s prov
             ) template in
             let patch_hole = patch_hole ~partial:true in

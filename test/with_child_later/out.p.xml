@@ -1,0 +1,13 @@
+<html>
+  <body>
+    
+      
+        <p>1</p>
+        
+        <p>2</p>
+        <t:insert name="gp.p.f" with="gp.p.f.tail"><t:seq/></t:insert>
+      
+      
+    
+  </body>
+</html>
