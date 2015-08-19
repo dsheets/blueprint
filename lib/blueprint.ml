@@ -1005,8 +1005,16 @@ let bind ?(partial=false) ~sink out bindings rope =
 
 let xml_sink ?(partial=false) () =
   let depth = ref 0 in (* TODO: this isn't very nice... *)
+  let start = ref true in
   let after_root = ref false in
-  fun prov out s -> List.iter (function
+  let rec output prov out = function
+    | (`Data _ | `El_start _ | `El_end) as s when !start ->
+      start := false;
+      Xmlm.output out (`Dtd None);
+      output prov out s
+    | `Dtd _ as s when !start ->
+      start := false;
+      output prov out s
     | `Data s when !depth = 0 && is_ws s -> ()
     | (`Data _ | `Dtd _) as signal ->
       if !after_root
@@ -1029,7 +1037,8 @@ let xml_sink ?(partial=false) () =
       decr depth;
       if !depth = 0 then after_root := true;
       Xmlm.output out `El_end
-  ) s; out
+  in
+  fun prov out s -> List.iter (output prov out) s; out
 
 let buffer_sink ?partial buffer =
   let ns_prefix = xmlns_map_default in
