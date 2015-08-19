@@ -696,6 +696,7 @@ module Hole = struct
   type ('rope, 'value) t =
     | Reference of ('rope, 'value) reference
     | Conditional of Condition.t * 'value * 'value option
+    | Snoop of string
 
   let name { name } = name
 
@@ -705,6 +706,8 @@ module Hole = struct
     Reference { name; default = Some value; closure; with_; }
 
   let new_conditional cond body ?els () = Conditional (cond, body, els)
+
+  let new_snoop label = Snoop label
 end
 
 let empty_seq = [ `El_start ((xmlns,"seq"),[]); `El_end ]
@@ -735,6 +738,14 @@ module rec Patch : PATCH
 
   let rec patch_hole ~partial : Rope.patch =
     fun env prov -> function
+      | Hole.Snoop label as hole ->
+        let dump = Rope.of_list ~prov [
+          `El_start (("","pre"),[]);
+          `Data (label ^"\n"^ (Scope.to_string env.Env.base));
+          `El_end;
+        ] in
+        let trailer = Rope.(if partial then make_hole ~prov hole else empty) in
+        Rope.(Replace (dump ++ trailer))
       | Hole.Conditional (Condition.Exists exid, body, els) -> Rope.(
         if exists env exid then Recurse (env, body)
         else if partial
@@ -836,8 +847,9 @@ and Template : XmlRope.TEMPLATE
     | Exists exid -> [("","exists"),Ident.(to_string exid)]
   )
 
-  (* TODO: closure bindings? *)
+  (* TODO: closure bindings *)
   let signals_of_hole ~prov (env : env) = Hole.(function
+    | Snoop label -> [`El_start ((xmlns,"snoop"),[("","label"),label]); `El_end]
     | Conditional (cond, body, els) ->
       let attrs = attrs_of_cond cond in
       let patch = Patch.patch_hole ~partial:true in
@@ -1083,6 +1095,7 @@ let add_link (path : Ident.absolute_t) b from to_ prov loc =
     let src = Ident.of_string loc src in
     let dst = Ident.of_string loc dst in
     (*log Debug.scope Ident.("link "^(to_string src)^" -> "^(to_string dst));*)
+    (*log Debug.scope (Scope.to_string b);*)
     Scope.link b src path dst prov, src
 
 let of_stream ~prov ~source =
@@ -1309,6 +1322,15 @@ let of_stream ~prov ~source =
 
     | "else" ->
       raise (Error (`Floating_else loc))
+
+    | "snoop" ->
+      let literal = of_list ~prov (List.rev seq) in
+      let label = get_attr loc "snoop" attrs "label" in
+      let subctxt = { ctxt with acc = Rope.empty } in
+      let acc, _content = run [0,[]] [] subctxt (source acc) in
+      let hole = Hole.new_snoop label in
+      let rope = ctxt.acc ++ literal ++ (make_hole ~prov hole) in
+      run stack [] { ctxt with acc = rope } (source acc)
 
     | el ->
       raise (Error (`Unknown_tag (loc, el)))
