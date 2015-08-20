@@ -65,9 +65,13 @@ end
 
 type signal = Prov.loc * Xmlm.signal
 
+type link_chain =
+  | Path of string list * link_chain option
+  | Fan of link_chain list
+
 type binding_error = [
   | `Empty_hole of Prov.t option * string
-  | `Dangling_link of Prov.t * string * string
+  | `Dangling_link of Prov.t * string * link_chain Lazy.t
     (* only occurs during expansion right now *)
 ]
 
@@ -96,14 +100,30 @@ let xmlns = "https://opam.ocaml.org/packages/blueprint/xmlns/0/#"
 
 let xmlns_map_default ns = if ns = xmlns then Some "t" else None
 
+let rec string_of_path acc = function
+  | [] -> acc
+  | [s] -> acc^s
+  | h::t -> string_of_path (acc^h^" -> ") t
+
+let string_of_chain chain =
+  let rec aux = function
+    | Path (path, None) -> string_of_path "" path
+    | Path ([], Some more) -> aux more
+    | Path (path, Some more) -> (string_of_path "" path)^" -> "^(aux more)
+    | Fan [] -> ""
+    | Fan [s] -> aux s
+    | Fan fan -> "{ "^(String.concat " }{ " (List.map aux fan))^" }"
+  in
+  aux chain
+
 let error_message : error -> string = Printf.(function
   | `Empty_hole (None, name) ->
     sprintf "No value for hole named '%s'" name
   | `Empty_hole (Some prov, name) ->
     sprintf "No value for hole named '%s'\n%s" name (Prov.to_string prov)
-  | `Dangling_link (prov, expanding, name) ->
-    sprintf "Dangling link to '%s' prevented expansion of '%s'\n%s"
-      name expanding (Prov.to_string prov)
+  | `Dangling_link (prov, expanding, lazy chain) ->
+    sprintf "Dangling link [ %s ] prevented expansion of '%s'\n%s"
+      (string_of_chain chain) expanding (Prov.to_string prov)
   | `Disallowed_expansion (prov, name) ->
     sprintf "Disallowed expansion of '%s'\n%s"
       name (Prov.to_string prov)
@@ -652,6 +672,46 @@ module Scope = struct
     in
     aux traversed (get scope ident)
 
+  let rec chase_link acc t scope = function
+    | None -> Path (List.rev ("!"::acc), None)
+    | Some (Scope scope) ->
+      begin match Ident.next t with
+        | None -> Path (List.rev ("+"::acc), None)
+        | Some (next, rest) ->
+          chase_link acc rest scope (get scope (Ident.any next))
+      end
+    | Some (Stack stack) ->
+      let rec down_stack ss acc = function
+        | (Link _ as obj)::objs -> down_stack ((scope,obj)::ss) (obj::acc) objs
+        | (Stack st)::objs -> down_stack ss acc (st@objs)
+        | [] -> List.rev ss
+        | (Scope s)::objs ->
+          let s = match s.parent with
+            | None -> s
+            | Some (name, _, _) ->
+              { s with parent = Some (name, Pstack (acc,objs), scope) }
+          in
+          down_stack ((s, Scope s)::ss) (Scope s::acc) objs
+      in
+      let scope_stack = down_stack [] [] stack in
+      Path (List.rev acc, Some (Fan (List.map (fun (scope,obj) ->
+        chase_link [] t scope (Some obj)
+      ) scope_stack)))
+    | Some (Link link) ->
+      let target = Ident.(any (resolve link.base link.target)) in
+      let acc = Ident.to_string target::acc in
+      let tail, base = rebase scope target in
+      (*log Debug.expand ("chasing link after rebase of "
+                            ^(Ident.to_string target));*)
+      (*log Debug.expand (to_string scope);*)
+      (*log Debug.expand (to_string base);*)
+      let tail = Ident.append tail t in
+      let path = path base in
+      let acc = Ident.((to_string path)^"/"^(to_string (any tail)))::acc in
+      match Ident.next tail with
+      | None -> chase_link acc tail base (get base Ident.here)
+      | Some (nxt, rest) -> chase_link acc rest base (get base (Ident.any nxt))
+
   (* expand marks all ancestor scopes of ident in scope as
      expanded. It returns a rebase pair of the original location. It
      can also fail to expand due to an empty hole or a dangling link. *)
@@ -665,8 +725,12 @@ module Scope = struct
         begin match aux obj with
           | Err `Empty_hole ->
             let original = Ident.(to_string (any original)) in
-            let target = Ident.(to_string (any link.target)) in
-            Err (`Dangling_link (prov, original, target))
+            (*log Debug.expand ("dangling link");*)
+            (*log Debug.expand (to_string scope);*)
+            let link_chain = Lazy.from_fun (fun () ->
+              chase_link [] Ident.here scope (Some obj)
+            ) in
+            Err (`Dangling_link (prov, original, link_chain))
           | (Ok _ | Err _) as r -> r
         end
       | Stack ((Scope s)::bot) ->
@@ -681,7 +745,8 @@ module Scope = struct
           let rec aux = function
             | { expanded = true } | { parent = None } as n ->
               let scope = { n with expanded = true } in
-              (*log Debug.expand Ident.("expand rebasing "^(to_string original));*)
+              (*log Debug.expand Ident.("expand rebasing "
+                                          ^(to_string (any original)));*)
               (*log Debug.expand (to_string scope);*)
               let p, scope = rebase scope (Ident.any original) in
               (*log Debug.expand (to_string scope);*)

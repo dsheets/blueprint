@@ -25,9 +25,13 @@ module Prov : sig
   }
 end
 
+type link_chain =
+  | Path of string list * link_chain option
+  | Fan of link_chain list
+
 type binding_error = [
   | `Empty_hole of Prov.t option * string
-  | `Dangling_link of Prov.t * string * string
+  | `Dangling_link of Prov.t * string * link_chain Lazy.t
 ]
 
 type expansion_error = [
