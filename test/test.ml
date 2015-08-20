@@ -196,6 +196,9 @@ Alcotest.run "blue" [
     "link_child";
     "link_rope_child";
     (*"link_child_later";*)
+    "link_child_twice";
+    (*"link_child_stacked";*)
+    (*"link_child_stacked2";*)
     "link_default";
     "link_list";
     "link_list_alt";
@@ -209,6 +212,9 @@ Alcotest.run "blue" [
     "with_child";
     "with_rope_child";
     "with_child_later";
+    "with_child_twice";
+    "with_child_stacked";
+    "with_child_stacked2";
     "with_default";
     "with_list";
     "with_list_alt";

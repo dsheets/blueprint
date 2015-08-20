@@ -1,0 +1,14 @@
+<html>
+  <t:let name="gp">
+    <t:let name=".p">
+      <t:let name=".f">
+        <t:let name=".sf"><t:insert name=".datum"/></t:let>
+        <t:insert name=".sf" with=".data"/>
+      </t:let>
+    </t:let>
+  </t:let>
+  <body>
+    <t:let name="d.data.datum">datum</t:let>
+    <t:insert name="gp.p.f" with="d"/>
+  </body>
+</html>

@@ -466,7 +466,6 @@ module Scope = struct
   (* Links have special behavior when stacking: their targets are
      resolved against the *current* topmost target of their base. *)
   let rec stack scope top rest = match top with
-    | Scope _ -> Stack (top::rest)
     | Stack [] -> Stack rest
     | Stack (x::xs) -> stack scope x (xs@rest)
     | Link ({ base; target } as link) ->
@@ -478,8 +477,15 @@ module Scope = struct
           base_of_base_opt base_opt, Ident.(any (resolve last_target target))
       in
       Stack (Link { link with base; target }::rest)
-
-  let rec overlay a' b' = {
+    | Scope a ->
+      (* TODO: Should this search the stack to perform the link
+         stacking even with interstitial links of the parent? *)
+      match rest with
+      | [] -> top
+      | (Scope b)::bot -> Stack (Scope (overlay a b)::bot)
+      | (Stack s)::bot -> stack scope top (s@bot)
+      | (Link _)::_ -> Stack (top::rest)
+  and overlay a' b' = {
     rope = merge_lazy_option a'.rope b'.rope;
     children = merge_lazy_map (fun a b -> match a,b with
       | Scope a, Scope b -> Some (Scope (overlay a b))
@@ -533,17 +539,23 @@ module Scope = struct
   (* rebase finds the longest prefix of ident in scope that points to
      a scope (rather than a link or a stack) *)
   (* TODO: this could be made more efficient *)
-  let rebase scope ident =
-    let rec aux acc ident =
-      match get scope ident with
-      | Some (Scope scope) -> acc, scope
-      | None | Some (Stack _ | Link _) ->
-        match Ident.prev ident with
-        | None -> acc, scope
-        | Some (pident, cident) ->
-          aux (Ident.append cident acc) (Ident.any pident)
+  let rebase scope (ident : Ident.any_t) =
+    let rec aux acc scope (nxt : Ident.relative_t) rest =
+      match get scope (Ident.any nxt) with
+      | None | Some (Stack _ | Link _) -> acc, scope
+      | Some (Scope scope) ->
+        match Ident.next rest with
+        | None -> rest, scope
+        | Some (n, r) -> aux rest scope n r
     in
-    aux Ident.here ident
+    let scope = Ident.(match ident with
+      | { kind = Absolute } -> to_root scope
+      | { kind = Relative } -> scope
+    ) in
+    let ident = Ident.({ ident with kind = Relative }) in
+    match Ident.next ident with
+    | None -> ident, scope
+    | Some (nxt, rest) -> aux ident scope nxt rest
 
   let rec apply scope f : Ident.relative_t -> _ = function
     | { Ident.ident = [] } -> scope
@@ -571,9 +583,12 @@ module Scope = struct
           let children = StringMap.add name (Stack (child::objs)) children in
           { scope with children = lazy children }
         | None ->
-          let parent_synth = up (get_shallow_scope scope (Ident.any ident)) in
-          let last_name = List.(hd (rev ident.Ident.ident)) in
-          let r = apply parent_synth f { ident with Ident.ident = [last_name] } in
+          let r = match Ident.prev ident with
+            | Some (parent, last) ->
+              let parent_synth = get_shallow_scope scope (Ident.any parent) in
+              apply parent_synth f last
+            | None -> scope
+          in
           List.fold_left (fun n _ -> up n) r rest
       in
       aux (match down IdentSet.empty scope (Scope scope) name with
@@ -610,10 +625,13 @@ module Scope = struct
     in
     Ident.(match ident with
       | { kind = Absolute } ->
-        let path = path scope in
         let scope = apply (to_root scope) set { ident with kind = Relative } in
-        rebase scope path
-      | { kind = Relative } as ident -> Ident.here, apply scope set ident
+        (*log Debug.scope "after link placement";*)
+        (*log Debug.scope (string_of_scope scope);*)
+        rebase scope (Ident.any base)
+      | { kind = Relative } as ident ->
+        let tail, scope = rebase scope (Ident.any base) in
+        tail, apply scope set (Ident.append tail ident)
     )
 
   (* get_rope finds the topmost rope for an ident *)
@@ -1089,23 +1107,23 @@ let root_ctxt = {
   tail = Ident.here;
 }
 
-let add_link (path : Ident.absolute_t) b from to_ prov loc =
+let add_link (path : Ident.absolute_t) tail scope from to_ prov loc =
   let path_any = Ident.any path in
   let prov = Prov.with_loc prov loc in
   match from, to_ with
-  | None, None -> (Ident.here, b), path_any (* TODO: something? *)
+  | None, None -> (tail, scope), path_any (* TODO: something? *)
   | Some src, None ->
-    let src = Ident.of_string loc src in
-    Scope.link b src path path_any prov, src
+    let src = Ident.(append tail (of_string loc src)) in
+    Scope.link scope src path path_any prov, src
   | None, Some dst ->
-    let dst = Ident.of_string loc dst in
-    Scope.link b path_any path dst prov, path_any
+    let dst = Ident.(append tail (of_string loc dst)) in
+    Scope.link scope path_any path dst prov, path_any
   | Some src, Some dst ->
-    let src = Ident.of_string loc src in
-    let dst = Ident.of_string loc dst in
+    let src = Ident.(append tail (of_string loc src)) in
+    let dst = Ident.(append tail (of_string loc dst)) in
     (*log Debug.scope Ident.("link "^(to_string src)^" -> "^(to_string dst));*)
-    (*log Debug.scope (Scope.to_string b);*)
-    Scope.link b src path dst prov, src
+    (*log Debug.scope (Scope.to_string scope);*)
+    Scope.link scope src path dst prov, src
 
 let of_stream ~prov ~source =
   let open Scope in
@@ -1138,7 +1156,7 @@ let of_stream ~prov ~source =
       let literal = of_list ~prov (List.rev seq) in
       let name = get_attr loc "insert" attrs "name" in
       let to_= get_attr_opt attrs "with" in
-      let path = Ident.resolve ctxt.path ctxt.tail in
+      let path = ctxt.path in
       let with_ = match to_ with
         | Some to_ -> Some Ident.(resolve path (of_string loc to_))
         | None -> None
@@ -1151,10 +1169,12 @@ let of_stream ~prov ~source =
         | None -> ctxt, (XmlStack.peek ctxt.local), true
         | Some with_ ->
           let local = XmlStack.peek ctxt.local in
-          (* TODO: does add_link need to take a tail? *)
-          let _path, local = Scope.rebase local (Ident.any path) in
-          let (_,local),_ = add_link path local (Some name) to_ prov loc in
-          let (t,s),_ = add_link path ctxt.scope (Some name) to_ prov loc in
+          let (_,local),_ =
+            add_link path Ident.here local (Some name) to_ prov loc
+          in
+          let (t,s),_ =
+            add_link path ctxt.tail ctxt.scope (Some name) to_ prov loc
+          in
           { ctxt with scope = s; tail = t },
           Scope.to_root local,
           match get s Ident.(any (append t with_)) with
@@ -1199,7 +1219,7 @@ let of_stream ~prov ~source =
             ) template in
             let patch_hole = patch_hole ~partial:true in
             let template = patch patch_hole (Env.create base tail) template in
-            (*log Debug.scope ("done compile patching "^Ident.to_string ident);*)
+            (*log Debug.scope ("done compile patching "^Ident.to_string id);*)
             (* Now, we throw away any default value. *)
             let acc, _default = run [0,[]] [] ctxtb (source acc) in
             let rope = ctxt.acc ++ literal ++ template in
@@ -1234,7 +1254,9 @@ let of_stream ~prov ~source =
       (* TODO: Warn that this is being thrown away (for now)? *)
       let acc, _content = run [0,[]] [] subctxt (source acc) in
       let local = XmlStack.peek ctxt.local in
-      let (ltl, local), lpath = add_link ctxt.path local from to_ prov loc in
+      let (ltl, local), lpath =
+        add_link ctxt.path Ident.here local from to_ prov loc
+      in
       let ltl = Ident.append ltl lpath in
       (*log Debug.scope ("link local for "^Ident.(to_string ltl));*)
       (*log Debug.scope (Scope.to_string local);*)
@@ -1242,7 +1264,9 @@ let of_stream ~prov ~source =
       let link = get_obj local ltl in
       let local = XmlStack.add_binding link_id link ctxt.local in
       (*log Debug.scope (Scope.to_string (XmlStack.peek local));*)
-      let (tail, scope),_ = add_link ctxt.path ctxt.scope from to_ prov loc in
+      let (tail, scope),_ =
+        add_link ctxt.path ctxt.tail ctxt.scope from to_ prov loc
+      in
       let stack = XmlStack.save_bindings ctxt.scope stack in
       run stack seq { ctxt with scope; tail; local; } (source acc)
 

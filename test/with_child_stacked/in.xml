@@ -1,0 +1,19 @@
+<html>
+  <t:let name="gp">
+    <t:let name=".p">
+      <t:let name=".f">
+        <t:insert name=".head"/>
+        <t:insert name="gp.p.f" with=".tail"><t:seq/></t:insert>
+      </t:let>
+      <t:insert name=".f" with=".fdata"/>
+    </t:let>
+  </t:let>
+  <body>
+    <t:let name="pdata.fdata">
+      <t:let name=".head">a</t:let>
+      <t:let name=".tail.head">b</t:let>
+      <t:let name=".tail.tail.head">c</t:let>
+    </t:let>
+    <t:insert name="gp.p" with="pdata"/>
+  </body>
+</html>

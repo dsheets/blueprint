@@ -1,0 +1,16 @@
+<html>
+  <t:let name="gp">
+    <t:let name=".p">
+      <t:let name=".f">
+        <t:let name=".sf"><t:insert name=".datum"/></t:let>
+        <t:link from=".sf" to=".data"/>
+        <t:insert name=".sf"/>
+      </t:let>
+    </t:let>
+  </t:let>
+  <body>
+    <t:let name="d.data.datum">datum</t:let>
+    <t:link from="gp.p.f" to="d"/>
+    <t:insert name="gp.p.f"/>
+  </body>
+</html>

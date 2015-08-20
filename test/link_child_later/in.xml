@@ -1,0 +1,26 @@
+<!-- This needs t:ref -->
+<html>
+  <t:let name="gp">
+    <t:let name=".p">
+      <t:let name=".f">
+        <p><t:insert name=".head"/></p>
+        <t:link from="gp.p.f" to=".tail"/>
+        <t:insert name="gp.p.f"><t:seq/></t:insert>
+      </t:let>
+      <t:if exists=".l">
+        <t:link from=".f" to=".l"/>
+        <t:insert name=".f"/>
+      </t:if>
+    </t:let>
+  </t:let>
+  <body>
+    <t:let name="list">
+      <t:let name=".head">1</t:let>
+      <t:let name=".tail">
+        <t:let name=".head">2</t:let>
+      </t:let>
+    </t:let>
+    <t:link from="gp.p.l" to="list"/>
+    <t:insert name="gp.p"/>
+  </body>
+</html>
