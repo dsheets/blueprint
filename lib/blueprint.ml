@@ -809,6 +809,7 @@ module Hole = struct
     | Reference of ('rope, 'value) reference
     | Conditional of Condition.t * 'value * 'value option
     | Snoop of string
+    | Chase of string * Ident.any_t
 
   let name { name } = name
 
@@ -820,6 +821,7 @@ module Hole = struct
   let new_conditional cond body ?els () = Conditional (cond, body, els)
 
   let new_snoop label = Snoop label
+  let new_chase label name = Chase (label, name)
 end
 
 let empty_seq = [ `El_start ((xmlns,"seq"),[]); `El_end ]
@@ -848,16 +850,29 @@ module rec Patch : PATCH
     let tail_name = Ident.append env.Env.path ident in
     match Scope.get env.Env.base tail_name with Some _ -> true | None -> false
 
+  let dump env partial prov hole s =
+    let dump = Rope.of_list ~prov [
+      `El_start (("","pre"),[]);
+      `Data s;
+      `El_end;
+    ] in
+    let trailer = Rope.(if partial then make_hole ~prov hole else empty) in
+    Rope.(Replace (dump ++ trailer))
+
   let rec patch_hole ~partial : Rope.patch =
     fun env prov -> function
+      | Hole.Chase (label, ident) as hole ->
+        let { Env.base } = env in
+        let ident = Ident.append env.Env.path ident in
+        let base_path = Scope.path base in
+        let root = Scope.to_root base in
+        let ident = Ident.({ (resolve base_path ident) with kind = Relative }) in
+        let chain = Scope.(chase_link [] ident root (Some (Scope root))) in
+        dump env partial prov hole (label^": "^
+                                    Ident.(to_string (any ident))^" "^
+                                    (string_of_chain chain))
       | Hole.Snoop label as hole ->
-        let dump = Rope.of_list ~prov [
-          `El_start (("","pre"),[]);
-          `Data (label ^"\n"^ (Scope.to_string env.Env.base));
-          `El_end;
-        ] in
-        let trailer = Rope.(if partial then make_hole ~prov hole else empty) in
-        Rope.(Replace (dump ++ trailer))
+        dump env partial prov hole (label^"\n"^(Scope.to_string env.Env.base))
       | Hole.Conditional (Condition.Exists exid, body, els) -> Rope.(
         if exists env exid then Recurse (env, body)
         else if partial
@@ -962,6 +977,11 @@ and Template : XmlRope.TEMPLATE
   (* TODO: closure bindings *)
   let signals_of_hole ~prov (env : env) = Hole.(function
     | Snoop label -> [`El_start ((xmlns,"snoop"),[("","label"),label]); `El_end]
+    | Chase (label,ident) ->
+      [`El_start ((xmlns,"chase"),[
+         ("","label"),label;
+         ("","name"), Ident.to_string ident;
+       ]); `El_end]
     | Conditional (cond, body, els) ->
       let attrs = attrs_of_cond cond in
       let patch = Patch.patch_hole ~partial:true in
@@ -1456,6 +1476,17 @@ let of_stream ~prov ~source =
       let subctxt = { ctxt with acc = Rope.empty } in
       let acc, _content = run [0,[]] [] subctxt (source acc) in
       let hole = Hole.new_snoop label in
+      let rope = ctxt.acc ++ literal ++ (make_hole ~prov hole) in
+      run stack [] { ctxt with acc = rope } (source acc)
+
+    | "chase" ->
+      let literal = of_list ~prov (List.rev seq) in
+      let label = get_attr loc "chase" attrs "label" in
+      let name = get_attr loc "chase" attrs "name" in
+      let ident = Ident.of_string loc name in
+      let subctxt = { ctxt with acc = Rope.empty } in
+      let acc, _content = run [0,[]] [] subctxt (source acc) in
+      let hole = Hole.new_chase label ident in
       let rope = ctxt.acc ++ literal ++ (make_hole ~prov hole) in
       run stack [] { ctxt with acc = rope } (source acc)
 
