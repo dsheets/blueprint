@@ -211,6 +211,8 @@ Alcotest.run "blue" [
     "with";
     "with_child";
     "with_rope_child";
+    "with_rope_child_deep";
+    "with_rope_child_shadow";
     "with_child_later";
     "with_child_twice";
     "with_child_stacked";

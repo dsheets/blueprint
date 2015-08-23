@@ -379,6 +379,13 @@ module Scope = struct
       let traversed = IdentSet.add path traversed in
       Ok (traversed, scope)
 
+  type 'a kstack = ('a t * 'a obj * 'a k list) option
+  and 'a k = K of (unit -> 'a kstack)
+
+  let push_kstack kstack ident ks = List.fold_left (fun kstack k ->
+    (ident,k)::kstack
+  ) kstack ks
+
   (* The small step implementation for get; preserves zipper parent invariants *)
   let rec down ~traversed scope obj name =
     (*log Debug.get ("descending "^name^"@"^(Ident.to_string (path scope)));*)
@@ -390,10 +397,10 @@ module Scope = struct
           | Scope child ->
             (*log Debug.get "child scope FOUND";*)
             let child = { child with parent = Some (name, Pscope, scope) } in
-            Some (scope, Scope child)
+            Some (scope, Scope child, [])
           | obj ->
             (*log Debug.get "other obj FOUND";*)
-            Some (scope, obj)
+            Some (scope, obj, [])
         with Not_found ->
           (*log Debug.get "child NOT FOUND";*)
           None
@@ -403,6 +410,7 @@ module Scope = struct
       (*log Debug.get ("following link to "^(Ident.to_string ident));*)
       begin match traverse traversed scope ident with
         | Err (`Disallowed_traversal id) ->
+          (*log Debug.get ("disallowed traversal "^Ident.to_string id);*)
           None
         (* TODO: need better way to distinguish loops vs out of
            context/partial application *)
@@ -423,7 +431,8 @@ module Scope = struct
         | (Link _ as obj)::objs ->
           begin match down ~traversed scope obj name with
             | None -> down_stack (obj::acc) objs
-            | Some _ as r -> r
+            | Some (s,o,k) ->
+              Some (s, o, K (fun () -> down_stack (obj::acc) objs) :: k)
           end
         | (Scope obj_scope)::objs ->
           (*log Debug.get ("down stack "^(string_of_int (List.length acc)));*)
@@ -437,35 +446,47 @@ module Scope = struct
           | None ->
             (*log Debug.get ("can't find "^name);*)
             down_stack (obj::acc) objs
-          | Some _ as r -> r
+          | Some (s, o, k) ->
+            Some (s, o, K (fun () -> down_stack (obj::acc) objs) :: k)
       in
       down_stack [] stack
   and get_
-    : 'a. _ -> (_ -> 'a) -> (_ -> _ -> _ -> 'a) -> _ -> Ident.any_t -> 'a =
-    fun traversed some missing scope ident ->
-      let rec aux scope obj : Ident.relative_t -> _ =
-        function
-        | { Ident.ident = [] } -> some obj
+    : 'a. _ -> (_ -> 'a) -> (_ -> _ -> _ -> 'a) -> _ -> _ -> Ident.any_t -> 'a =
+    fun traversed some missing p scope ident ->
+      let rec aux kstack scope obj : Ident.relative_t -> _ = function
+        | { Ident.ident = [] } as ident ->
+          if p obj then some obj else try_kstack scope obj ident kstack
         | { Ident.ident = name::rest } as ident ->
           match down ~traversed scope obj name with
-          | Some (scope, obj) ->
-            aux scope obj { ident with Ident.ident = rest }
-          | None -> missing scope obj ident
+          | Some (scope, obj, ks) ->
+            let ident = { ident with Ident.ident = rest } in
+            let ks = push_kstack kstack ident ks in
+            aux ks scope obj ident
+          | None -> try_kstack scope obj ident kstack
+      and try_kstack scope obj ident = function
+        | [] -> missing scope obj ident
+        | (ident,K k)::kstack -> match k () with
+          | Some (scope, obj, ks) ->
+            let ks = push_kstack kstack ident ks in
+            aux ks scope obj ident
+          | None -> try_kstack scope obj ident kstack
       in
       (*log Debug.get ("getting "^(Ident.to_string ident)^"@"^(Ident.to_string (path scope)));*)
       Ident.(match ident with
         | { kind = Absolute } ->
           let scope = to_root scope in
-          let r = aux scope (Scope scope) { ident with kind = Relative } in
+          let r = aux [] scope (Scope scope) { ident with kind = Relative } in
           (*log Debug.get ("returning "^(Ident.to_string ident));*)
           r
         | { kind = Relative } as ident ->
-          let r = aux scope (Scope scope) ident in
+          let r = aux [] scope (Scope scope) ident in
           (*log Debug.get ("returning "^(Ident.to_string ident));*)
           r
       )
   and get ?(traversed=IdentSet.empty) scope ident =
-    get_ traversed (fun x -> Some x) (fun _ _ _ -> None) scope ident
+    get_ traversed
+      (fun x -> Some x) (fun _ _ _ -> None) (fun _ -> true)
+      scope ident
 
   let find scope name =
     try
@@ -538,7 +559,7 @@ module Scope = struct
     in
     get_ traversed (fun x -> x) (fun scope obj ident ->
       Scope (missing_obj scope obj ident)
-    ) scope ident
+    ) (fun _ -> true) scope ident
 
   let rec get_shallow_scope scope ident =
     let rec aux = function
@@ -612,7 +633,7 @@ module Scope = struct
           List.fold_left (fun n _ -> up n) r rest
       in
       aux (match down IdentSet.empty scope (Scope scope) name with
-        | Some (_,obj) -> Some obj
+        | Some (_,obj, _) -> Some obj
         | None -> None
       )
 
@@ -670,8 +691,16 @@ module Scope = struct
         | Err `Empty_hole -> aux traversed (Some (Stack objs))
         | (Ok _ | Err (`Disallowed_traversal _)) as r -> r
     in
-    aux traversed (get scope ident)
+    aux traversed
+      (get_ traversed (fun x -> Some x) (fun _ _ _ -> None)
+         (function
+           | Scope { rope = lazy None } -> false
+           | _ -> true
+         )
+         scope ident)
 
+  (* TODO: This doesn't check traversal loops. Diverges? Can merge
+     with get's resolution somehow? *)
   let rec chase_link acc t scope = function
     | None -> Path (List.rev ("!"::acc), None)
     | Some (Scope scope) ->
