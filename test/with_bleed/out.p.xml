@@ -1,0 +1,11 @@
+<html>
+  <body>
+    
+      <p>p</p><t:if exists=".head.div"><div><t:insert name="map.head.div"/></div></t:if>
+      <t:if exists=".head.p"><p><t:insert name="map.head.p"/></p></t:if><div>div</div>
+      <p>p2</p><t:if exists=".head.div"><div><t:insert name="map.head.div"/></div></t:if><t:insert name="map" with="map.tail"><t:seq/></t:insert>
+    
+    
+    
+  </body>
+</html>

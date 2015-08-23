@@ -1,0 +1,13 @@
+<html>
+  <t:let name="data.head.p">p</t:let>
+  <t:let name="data.tail.head.div">div</t:let>
+  <t:let name="data.tail.tail.head.p">p2</t:let>
+  <body>
+    <t:let name="map">
+      <t:if exists=".head.p"><p><t:insert name=".head.p"/></p></t:if>
+      <t:if exists=".head.div"><div><t:insert name=".head.div"/></div></t:if>
+      <t:insert name="map" with=".tail"><t:seq/></t:insert>
+    </t:let>
+    <t:insert name="map" with="data"/>
+  </body>
+</html>
