@@ -139,9 +139,17 @@ val bind_to_output :
   ?partial:bool -> out_channel -> Rope.t Scope.t -> Rope.t -> unit
 
 module Tree : sig
+  val empty : t
+
+  val add : string -> t -> t -> t
+
+  val tag : string -> string * t
 
   val of_kv : (string * t) list -> t
+  val of_kv_maybe : (string * t option) list -> t
   val of_kv_string : (string * string) list -> t
   val of_string : string -> t
   val of_list : t list -> t
+  val of_cons : string -> t -> t
+  val of_cons_string : string -> string -> t
 end

@@ -1456,19 +1456,31 @@ let of_stream ~prov ~source =
 
 
 module Tree = struct
-  let of_kv kv = List.fold_left (fun scope (key, obj) ->
-    (* TODO: raise if ident is invalid *)
-    Scope.put scope (Ident.of_string (-1,-1) key) (Scope.Scope obj)
-  ) Scope.empty kv
+  let empty = Scope.empty
 
-  let of_string s = Scope.({ empty with rope = Lazy.from_fun (fun () ->
+  (* TODO: raise if ident is invalid *)
+  let add key obj scope =
+    Scope.put scope (Ident.of_string (-1,-1) key) (Scope.Scope obj)
+
+  let tag tag = (tag, empty)
+
+  let of_kv kv = List.fold_left (fun scope (key, obj) ->
+    add key obj scope
+  ) empty kv
+
+  let of_kv_maybe kv = List.fold_left (fun scope -> function
+    | key, None -> scope
+    | key, Some obj -> add key obj scope
+  ) empty kv
+
+  let of_string s = { empty with Scope.rope = Lazy.from_fun (fun () ->
     let prov = Prov.({
       src = Stream "Blueprint.Tree.of_string";
       loc = None;
       incl = None;
     }) in
     Some (Rope.of_data ~prov s)
-  ); })
+  ); }
 
   let of_kv_string kv =
     of_kv (List.map (fun (car,cdr) -> (car, of_string cdr)) kv)
@@ -1480,5 +1492,9 @@ module Tree = struct
       | None -> Some (of_kv ["head", next])
     ) None list with
     | Some t -> t
-    | None -> Scope.empty
+    | None -> empty
+
+  let of_cons name blue = of_kv [ name, blue ]
+
+  let of_cons_string name s = of_kv [ name, of_string s ]
 end
