@@ -251,6 +251,16 @@ module Ident = struct
       compare_string_list a b
     | { kind = Relative }, { kind = Absolute } -> -1
     | { kind = Absolute }, { kind = Relative } ->  1
+
+  let is_prefix prefix ident =
+    let rec aux = function
+      | x::xs, y::ys when x = y -> aux (xs,ys)
+      | [], _ -> true
+      | _, _ -> false
+    in
+    if prefix.kind = ident.kind
+    then aux (prefix.ident,ident.ident)
+    else false
 end
 
 module Condition = struct
@@ -504,8 +514,19 @@ module Scope = struct
     | Some (Link { base; target; }) -> Some base, target
     | Some (Stack objs) -> last_link_base_target objs
 
+  let rec prefix_stack top acc = function
+    | [] -> List.rev acc
+    | (Link { base; target } as obj)::rest ->
+      let ident = Ident.resolve base target in
+      if Ident.is_prefix ident top
+      then prefix_stack top acc rest
+      else prefix_stack top (obj::acc) rest
+    | (Scope _ | Stack _ as obj)::rest -> prefix_stack top (obj::acc) rest
+
   (* Links have special behavior when stacking: their targets are
-     resolved against the *current* topmost target of their base. *)
+     resolved against the *current* topmost target of their base and
+     any links in the stack which point to prefixes of the stack link
+     are removed.  *)
   let rec stack scope top rest = match top with
     | Stack [] -> Stack rest
     | Stack (x::xs) -> stack scope x (xs@rest)
@@ -517,7 +538,11 @@ module Scope = struct
         | base_opt, ({ Ident.kind = Ident.Absolute } as last_target) ->
           base_of_base_opt base_opt, Ident.(any (resolve last_target target))
       in
-      Stack (Link { link with base; target }::rest)
+      let top = Link { link with base; target } in
+      begin match prefix_stack (Ident.resolve base target) [] rest with
+        | [] -> top
+        | rest -> Stack (top::rest)
+      end
     | Scope a ->
       (* TODO: Should this search the stack to perform the link
          stacking even with interstitial links of the parent? *)

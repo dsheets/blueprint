@@ -209,6 +209,7 @@ Alcotest.run "blue" [
 
   "With", success_tests [
     "with";
+    "with_bleed";
     "with_child";
     "with_rope_child";
     "with_rope_child_deep";
