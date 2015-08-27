@@ -6,8 +6,8 @@
         <t:insert name="g"/>
       </t:else>
     </t:let>
-    <t:link from="g" to="x"/>
     <t:let name="x">X!</t:let>
+    <t:link from="g" to="x"/>
     <p><t:insert name="f"/></p>
   </body>
 </html>

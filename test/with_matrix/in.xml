@@ -35,11 +35,8 @@
     <t:let name="trows">
       <tr>
         <th><t:insert name=".head"/></th>
-        <t:let name="row.n">
-          <t:let name="trows"><t:insert name="trows" with=".head"/></t:let>
-          <t:insert name="trows"/>
-        </t:let>
-        <t:insert name="row" with="data.cols"/>
+          <t:link from="row.n" to=".head"/>
+          <t:insert name="row" with="data.cols"/>
       </tr>
       <t:insert name="trows" with=".tail"><t:seq/></t:insert>
     </t:let>

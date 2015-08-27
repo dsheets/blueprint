@@ -22,7 +22,7 @@ module Debug = struct
   let scope = 0x01
   let get = 0x02
   let expand = 0x04
-  let v = 0 (*scope lor get*)
+  let v = 0 (*scope lor get lor expand*)
 end
 let log tag s = if Debug.v land tag <> 0 then print_endline s
 
@@ -65,13 +65,9 @@ end
 
 type signal = Prov.loc * Xmlm.signal
 
-type link_chain =
-  | Path of string list * link_chain option
-  | Fan of link_chain list
-
 type binding_error = [
   | `Empty_hole of Prov.t option * string
-  | `Dangling_link of Prov.t * string * link_chain Lazy.t
+  | `Dangling_link of Prov.t * string * string
     (* only occurs during expansion right now *)
 ]
 
@@ -82,7 +78,6 @@ type expansion_error = [
 
 type error = [
   | expansion_error
-  | `Disallowed_traversal of Prov.t * string
   | `Bad_ident of Prov.loc * string
   | `Unknown_tag of Prov.loc * string
   | `Missing_attribute of Prov.loc option * string * string
@@ -105,30 +100,17 @@ let rec string_of_path acc = function
   | [s] -> acc^s
   | h::t -> string_of_path (acc^h^" -> ") t
 
-let string_of_chain chain =
-  let rec aux = function
-    | Path (path, None) -> string_of_path "" path
-    | Path ([], Some more) -> aux more
-    | Path (path, Some more) -> (string_of_path "" path)^" -> "^(aux more)
-    | Fan [] -> ""
-    | Fan [s] -> aux s
-    | Fan fan -> "{ "^(String.concat " }{ " (List.map aux fan))^" }"
-  in
-  aux chain
-
 let error_message : error -> string = Printf.(function
   | `Empty_hole (None, name) ->
     sprintf "No value for hole named '%s'" name
   | `Empty_hole (Some prov, name) ->
     sprintf "No value for hole named '%s'\n%s" name (Prov.to_string prov)
-  | `Dangling_link (prov, expanding, lazy chain) ->
-    sprintf "Dangling link [ %s ] prevented expansion of '%s'\n%s"
-      (string_of_chain chain) expanding (Prov.to_string prov)
+  | `Dangling_link (prov, dangling, expanding) ->
+    sprintf "Dangling link '%s' prevented expansion of '%s'\n%s"
+      dangling expanding (Prov.to_string prov)
   | `Disallowed_expansion (prov, name) ->
     sprintf "Disallowed expansion of '%s'\n%s"
       name (Prov.to_string prov)
-  | `Disallowed_traversal (prov, name) ->
-    sprintf "Disallowed traversal of '%s'\n%s" name (Prov.to_string prov)
   | `Bad_ident (loc, name) ->
     sprintf "%s: the identifier '%s' is invalid" (Prov.string_of_loc loc) name
   | `Unknown_tag (loc, tag) ->
@@ -229,7 +211,7 @@ module Ident = struct
       Some ({ i with kind; ident = [x] },
             { i with kind = Relative; ident = xs })
 
-  let extend : any_t -> string -> any_t = fun ident segment ->
+  let extend : 'a. 'a t -> string -> 'a t = fun ident segment ->
     { ident with ident = ident.ident@[segment] }
 
   let of_string loc s =
@@ -269,52 +251,60 @@ module Condition = struct
 end
 
 module StringMap = Map.Make(String)
+module StringSet = Set.Make(String)
 
 module IdentSet = Set.Make(Ident.Absolute)
 
+module IntSet = Set.Make(struct
+    type t = int
+
+    let compare (x: t) (y: t) = compare x y
+  end)
+
 module Scope = struct
-  type link = {
-    base : Ident.absolute_t; (* the context in which the link was created *)
-    target : Ident.any_t;
-    location : Prov.t;
-  }
   type 'rope t = {
     rope : 'rope option Lazy.t;
-    children : 'rope obj StringMap.t Lazy.t;
-    parent : (string * 'rope path * 'rope t) option;
-    expanded : bool;
+    children : 'rope t StringMap.t Lazy.t;
+    parent : (string * 'rope t) option;
+    id : Ident.absolute_t;
+    serial : int;
+    filter : IntSet.t;
+    prefilter : IntSet.t;
   }
-  and 'rope obj =
-    | Scope of 'rope t
-    | Link of link
-    | Stack of 'rope obj list
-  and 'rope path =
-    | Pscope
-    | Pstack of 'rope obj list * 'rope obj list (* zipped stack *)
 
-  let empty =
+  let issue = ref 0
+
+  let empty () =
     let rope = Lazy.from_val None in
     let children = Lazy.from_val StringMap.empty in
     let parent = None in
-    let expanded = false in
-    { rope; children; parent; expanded; }
+    let id = Ident.root in
+    let serial = !issue in
+    let filter = IntSet.empty in
+    let prefilter = IntSet.empty in
+    incr issue;
+    { rope; children; parent; id; serial; filter; prefilter }
 
   let template { rope } = rope
   let children { children } = children
 
+  let serials { children = lazy children } =
+    StringMap.fold (fun _ { serial } -> IntSet.add serial) children IntSet.empty
+
+  let with_maybe_rope obj rope =
+    let serial = !issue in
+    incr issue;
+    { obj with rope; serial }
+
   let with_rope obj rope =
-    { obj with rope = Lazy.from_fun (fun () -> Some rope) }
+    with_maybe_rope obj (Lazy.from_fun (fun () -> Some rope))
 
   let up = function
     | { parent = None } as n -> n
-    | { parent = Some (name, path, p) } as n ->
+    | { parent = Some (name, p) } as n ->
       let children = Lazy.from_fun (fun () ->
         let lazy children = p.children in
-        let obj = match path with
-          | Pscope -> Scope n
-          | Pstack (top,bot) -> Stack (List.rev_append top ((Scope n)::bot))
-        in
-        StringMap.add name obj children
+        StringMap.add name n children
       ) in
       { p with children }
 
@@ -325,13 +315,13 @@ module Scope = struct
   let fold_up f z scope =
     let rec aux acc = function
       | { parent = None } -> acc
-      | { parent = Some (name,path,p) } as n ->
-        aux (f acc n name path p) (up n)
+      | { parent = Some (name,p) } as n ->
+        aux (f acc n name p) (up n)
     in
     aux z scope
 
   let path scope =
-    let ident = fold_up (fun ident _ name _ _ -> name::ident) [] scope in
+    let ident = fold_up (fun ident _ name _ -> name::ident) [] scope in
     Ident.({ kind = Absolute; ident; loc = None })
 
   let to_string scope =
@@ -339,32 +329,59 @@ module Scope = struct
     let scope = to_root scope in
     let open Printf in
     let buf = Buffer.create 64 in
-    let rec print_obj p indent name = function
-      | Scope scope ->
-        Buffer.add_string buf (sprintf "\n%s%s" indent name);
-        print (Ident.extend p name) (indent^"  ") scope
-      | Link { base; target } ->
-        let base = Ident.(to_string (any base)) in
-        let target = Ident.(to_string (any target)) in
-        Buffer.add_string buf
-          (sprintf "\n%s%s --> %s/%s" indent name base target)
-      | Stack objs ->
-        Buffer.add_string buf (sprintf "\n%s(" indent);
-        List.iter (fun obj -> print_obj p indent name obj) objs;
-        Buffer.add_string buf (sprintf "%s)" indent)
-    and print p indent { rope; children = lazy children; expanded } =
+    let rec print_obj p indent name scope =
+      Buffer.add_string buf (sprintf "\n%s%s" indent name);
+      print (Ident.extend p name) (indent^"  ") scope
+    and print p indent { rope; children = lazy children; id; serial } =
       let cursor = if p = path then "*" else "" in
       let has_rope = match rope with
         | lazy (Some _) -> "+"
         | lazy None -> ""
       in
-      Buffer.add_string buf
-        (sprintf "%s%s:%s" has_rope cursor (if expanded then "X" else ""));
+      let id = Ident.(to_string (any id)) in
+      Buffer.add_string buf (sprintf "%s%s(%s,%d)" has_rope cursor id serial);
       StringMap.iter (print_obj p indent) children;
       if StringMap.cardinal children = 0 then Buffer.add_string buf "\n"
     in
     print Ident.root "  " scope;
     Buffer.contents buf
+
+  (* The small step implementation for get; preserves zipper parent invariants *)
+  let rec down ({ children = lazy children } as scope) name =
+    try
+      let c = StringMap.find name children in
+      Some { c with parent = Some (name, scope) }
+    with Not_found -> None
+  and get_
+    : 'a. (_ -> 'a) -> (_ -> _ -> 'a) -> _ -> Ident.any_t -> 'a =
+    fun some missing scope ident ->
+      let rec aux scope : Ident.relative_t -> _ = function
+        | { Ident.ident = [] } -> some scope
+        | { Ident.ident = name::rest } as ident ->
+          match down scope name with
+          | Some scope ->
+            let ident = { ident with Ident.ident = rest } in
+            aux scope ident
+          | None -> missing scope ident
+      in
+      Ident.(match ident with
+        | { kind = Absolute } ->
+          let scope = to_root scope in
+          let r = aux scope { ident with kind = Relative } in
+          (*log Debug.get ("returning "^(Ident.to_string ident));*)
+          r
+        | { kind = Relative } as ident ->
+          let r = aux scope ident in
+          (*log Debug.get ("returning "^(Ident.to_string ident));*)
+          r
+      )
+  and get scope ident =
+    get_ (fun x -> Some x) (fun _ _ -> None) scope ident
+
+  let find scope name =
+    try
+      get scope (Ident.of_string (-1,-1) name)
+    with Error (`Bad_ident _) -> None
 
   let merge_lazy_option a b = match a with
     | lazy (Some _) -> a
@@ -376,252 +393,69 @@ module Scope = struct
       | None, None -> None
       | Some _, None -> a
       | None, Some _ -> b
-      | Some a, Some b -> c a b
+      | Some a, Some b -> Some (c a b)
     ) (Lazy.force a) (Lazy.force b)
   )
 
-  (* for checking whether we're in a path traversal loop via links *)
-  let traverse traversed scope ident =
-    let path = Ident.(resolve (path scope) ident) in
-    if IdentSet.mem path traversed
-    then Err (`Disallowed_traversal ident)
-    else
-      let traversed = IdentSet.add path traversed in
-      Ok (traversed, scope)
-
-  type 'a kstack = ('a t * 'a obj * 'a k list) option
-  and 'a k = K of (unit -> 'a kstack)
-
-  let push_kstack kstack ident ks = List.fold_left (fun kstack k ->
-    (ident,k)::kstack
-  ) kstack ks
-
-  (* The small step implementation for get; preserves zipper parent invariants *)
-  let rec down ~traversed scope obj name =
-    (*log Debug.get ("descending "^name^"@"^(Ident.to_string (path scope)));*)
-    match obj with
-    | Scope scope ->
-      begin try
-          let lazy children = scope.children in
-          match StringMap.find name children with
-          | Scope child ->
-            (*log Debug.get "child scope FOUND";*)
-            let child = { child with parent = Some (name, Pscope, scope) } in
-            Some (scope, Scope child, [])
-          | obj ->
-            (*log Debug.get "other obj FOUND";*)
-            Some (scope, obj, [])
-        with Not_found ->
-          (*log Debug.get "child NOT FOUND";*)
-          None
-      end
-    | Link { base; target; location } ->
-      let ident = Ident.(any (resolve base target)) in
-      (*log Debug.get ("following link to "^(Ident.to_string ident));*)
-      begin match traverse traversed scope ident with
-        | Err (`Disallowed_traversal id) ->
-          (*log Debug.get ("disallowed traversal "^Ident.to_string id);*)
-          None
-        (* TODO: need better way to distinguish loops vs out of
-           context/partial application *)
-        (* TODO: right prov? *)
-        (*raise (Error (`Disallowed_traversal (location, Ident.to_string id)))*)
-        | Ok (traversed, scope) -> match get ~traversed scope ident with
-          | None -> None
-          | Some (Scope s as obj) -> down ~traversed s obj name
-          | Some ((Link _ | Stack _) as obj) ->
-            down ~traversed scope obj name
-      end
-    | Stack stack ->
-      let rec down_stack acc = function
-        | [] ->
-          (*log Debug.get "no more stack";*)
-          None
-        | (Stack s)::objs -> down_stack acc (s@objs)
-        | (Link _ as obj)::objs ->
-          begin match down ~traversed scope obj name with
-            | None -> down_stack (obj::acc) objs
-            | Some (s,o,k) ->
-              Some (s, o, K (fun () -> down_stack (obj::acc) objs) :: k)
-          end
-        | (Scope obj_scope)::objs ->
-          (*log Debug.get ("down stack "^(string_of_int (List.length acc)));*)
-          let parent = match obj_scope.parent with
-            | None -> None
-            | Some (name, _, _) -> Some (name, Pstack (acc,objs), scope)
-          in
-          let obj_scope = { obj_scope with parent } in
-          let obj = Scope obj_scope in
-          match down ~traversed obj_scope obj name with
-          | None ->
-            (*log Debug.get ("can't find "^name);*)
-            down_stack (obj::acc) objs
-          | Some (s, o, k) ->
-            Some (s, o, K (fun () -> down_stack (obj::acc) objs) :: k)
-      in
-      down_stack [] stack
-  and get_
-    : 'a. _ -> (_ -> 'a) -> (_ -> _ -> _ -> 'a) -> _ -> _ -> Ident.any_t -> 'a =
-    fun traversed some missing p scope ident ->
-      let rec aux kstack scope obj : Ident.relative_t -> _ = function
-        | { Ident.ident = [] } as ident ->
-          if p obj then some obj else try_kstack scope obj ident kstack
-        | { Ident.ident = name::rest } as ident ->
-          match down ~traversed scope obj name with
-          | Some (scope, obj, ks) ->
-            let ident = { ident with Ident.ident = rest } in
-            let ks = push_kstack kstack ident ks in
-            aux ks scope obj ident
-          | None -> try_kstack scope obj ident kstack
-      and try_kstack scope obj ident = function
-        | [] -> missing scope obj ident
-        | (ident,K k)::kstack -> match k () with
-          | Some (scope, obj, ks) ->
-            let ks = push_kstack kstack ident ks in
-            aux ks scope obj ident
-          | None -> try_kstack scope obj ident kstack
-      in
-      (*log Debug.get ("getting "^(Ident.to_string ident)^"@"^(Ident.to_string (path scope)));*)
-      Ident.(match ident with
-        | { kind = Absolute } ->
-          let scope = to_root scope in
-          let r = aux [] scope (Scope scope) { ident with kind = Relative } in
-          (*log Debug.get ("returning "^(Ident.to_string ident));*)
-          r
-        | { kind = Relative } as ident ->
-          let r = aux [] scope (Scope scope) ident in
-          (*log Debug.get ("returning "^(Ident.to_string ident));*)
-          r
-      )
-  and get ?(traversed=IdentSet.empty) scope ident =
-    get_ traversed
-      (fun x -> Some x) (fun _ _ _ -> None) (fun _ -> true)
-      scope ident
-
-  let find scope name =
-    try
-      get scope (Ident.of_string (-1,-1) name)
-    with Error (`Bad_ident _) -> None
-
-  let rec last_link_base_target = function
-    | [] -> None, Ident.here
-    | (Link { base; target; })::_ -> Some base, target
-    | (Scope _)::objs -> last_link_base_target objs
-    | (Stack s)::objs -> last_link_base_target (s@objs)
-
-  let link_base_target scope base = match get scope (Ident.any base) with
-    | None | Some (Stack []) | Some (Scope _) -> None, Ident.here
-    | Some (Link { base; target; }) -> Some base, target
-    | Some (Stack objs) -> last_link_base_target objs
-
-  let rec prefix_stack top acc = function
-    | [] -> List.rev acc
-    | (Link { base; target } as obj)::rest ->
-      let ident = Ident.resolve base target in
-      if Ident.is_prefix ident top
-      then prefix_stack top acc rest
-      else prefix_stack top (obj::acc) rest
-    | (Scope _ | Stack _ as obj)::rest -> prefix_stack top (obj::acc) rest
-
-  (* Links have special behavior when stacking: their targets are
-     resolved against the *current* topmost target of their base and
-     any links in the stack which point to prefixes of the stack link
-     are removed.  *)
-  let rec stack scope top rest = match top with
-    | Stack [] -> Stack rest
-    | Stack (x::xs) -> stack scope x (xs@rest)
-    | Link ({ base; target } as link) ->
-      let base_of_base_opt = function None -> base | Some base -> base in
-      let base, target = match link_base_target scope base with
-        | base_opt, ({ Ident.kind = Ident.Relative } as last_target) ->
-          base_of_base_opt base_opt, Ident.(any (append last_target target))
-        | base_opt, ({ Ident.kind = Ident.Absolute } as last_target) ->
-          base_of_base_opt base_opt, Ident.(any (resolve last_target target))
-      in
-      let top = Link { link with base; target } in
-      begin match prefix_stack (Ident.resolve base target) [] rest with
-        | [] -> top
-        | rest -> Stack (top::rest)
-      end
-    | Scope a ->
-      (* TODO: Should this search the stack to perform the link
-         stacking even with interstitial links of the parent? *)
-      match rest with
-      | [] -> top
-      | (Scope b)::bot -> Stack (Scope (overlay a b)::bot)
-      | (Stack s)::bot -> stack scope top (s@bot)
-      | (Link _)::_ -> Stack (top::rest)
-  and overlay a' b' = {
-    rope = merge_lazy_option a'.rope b'.rope;
-    children = merge_lazy_map (fun a b -> match a,b with
-      | Scope a, Scope b -> Some (Scope (overlay a b))
-      | (Scope _ | Link _), (Scope _ | Link _) -> Some (stack b' a [b])
-      | Stack [], _ -> Some b
-      | Stack (x::xs), Stack ys -> Some (stack b' x (xs@ys))
-      | Stack (x::xs), (Scope _ | Link _) -> Some (stack b' x (xs@[b]))
-      | _, Stack bot -> Some (stack b' a bot)
-    ) a'.children b'.children;
-    parent = b'.parent;
-    expanded = a'.expanded && b'.expanded; (* TODO: could diverge? *)
+  let rec overlay a b = {
+    rope = merge_lazy_option a.rope b.rope;
+    children = merge_lazy_map overlay a.children b.children;
+    parent = b.parent;
+    id = b.id;
+    serial = (let serial = !issue in incr issue; serial);
+    filter = IntSet.union a.filter b.filter;
+    prefilter = IntSet.union a.prefilter b.prefilter;
   }
+
+  let rec rebind a b =
+    let rope = merge_lazy_option a.rope b.rope in
+    let lazy acs = a.children in
+    let lazy bcs = b.children in
+    let child_in_b name { serial } =
+      try let bc = StringMap.find name bcs in serial = bc.serial
+      with Not_found -> false
+    in
+    let children = Lazy.from_fun (fun () -> StringMap.(fold add acs bcs)) in
+    let serial =
+      (* This is intentionally address equality because ropes contain
+         lazy values in closure scopes. If the ropes are different
+         objects, even if they are structurally equal, it is OK to
+         treat them as distinct. *)
+      if rope == b.rope && StringMap.for_all child_in_b acs
+      then b.serial
+      else (let serial = !issue in incr issue; serial)
+    in
+    {
+      rope; children; serial;
+      parent = b.parent; id = b.id;
+      filter = IntSet.union a.filter b.filter;
+      prefilter = IntSet.union a.prefilter b.prefilter;
+    }
 
   let rec synthesize scope = function
     | { Ident.ident = [] } -> scope
     | { Ident.ident = name::rest } as ident ->
       let ident = { ident with Ident.ident = rest } in
-      synthesize { empty with parent = Some (name, Pscope, scope) } ident
+      let parent = Some (name, scope) in
+      let id = Ident.(extend scope.id name) in
+      synthesize { (empty ()) with parent; id } ident
 
-  let rec get_obj ?(traversed=IdentSet.empty) scope ident =
-    let rec missing_obj scope obj ident = match obj with
-      | Scope scope -> synthesize scope ident
-      | Stack (a::_) -> missing_obj scope a ident
-      | Stack [] -> assert false (* TODO: blegh *)
-      | Link { base; target; location } ->
-        (* TODO: can diverge? *)
-        let target = Ident.(any (resolve base target)) in
-        let obj = get_obj ~traversed scope target in
-        missing_obj scope obj ident
-    in
-    get_ traversed (fun x -> x) (fun scope obj ident ->
-      Scope (missing_obj scope obj ident)
-    ) (fun _ -> true) scope ident
+  let rec get_obj scope ident =
+    get_ (fun x -> x) synthesize scope ident
 
-  let rec get_shallow_scope scope ident =
-    let rec aux = function
-      | Scope n | Stack ((Scope n)::_) -> n (* TODO: set parent? *)
-      | Link { base; target; } ->
-        let target = Ident.(any (resolve base target)) in
-        (* TODO: can diverge? *)
-        get_shallow_scope scope target
-      | Stack (a::_) -> aux a
-      | Stack [] -> assert false (* TODO: blegh *)
-    in
-    (* We'll be pointing at the unresolved object *)
-    aux (get_obj scope ident)
+  let rec find_tail scope = function
+    | { Ident.ident = [] } -> scope, Ident.here
+    | { Ident.ident = name::rest } as ident ->
+      match down scope name with
+      | Some scope -> find_tail scope { ident with Ident.ident = rest }
+      | None -> scope, ident
 
-  let return dst_scope src_scope =
-    get_shallow_scope src_scope (path dst_scope)
-
-  (* rebase finds the longest prefix of ident in scope that points to
-     a scope (rather than a link or a stack) *)
-  (* TODO: this could be made more efficient *)
-  let rebase scope (ident : Ident.any_t) =
-    let rec aux acc scope (nxt : Ident.relative_t) rest =
-      match get scope (Ident.any nxt) with
-      | None | Some (Stack _ | Link _) -> acc, scope
-      | Some (Scope scope) ->
-        match Ident.next rest with
-        | None -> rest, scope
-        | Some (n, r) -> aux rest scope n r
-    in
-    let scope = Ident.(match ident with
-      | { kind = Absolute } -> to_root scope
-      | { kind = Relative } -> scope
-    ) in
-    let ident = Ident.({ ident with kind = Relative }) in
-    match Ident.next ident with
-    | None -> ident, scope
-    | Some (nxt, rest) -> aux ident scope nxt rest
+  let split scope = Ident.(function
+    | { kind = Absolute } as ident ->
+      let scope = to_root scope in
+      find_tail scope { ident with kind = Relative }
+    | { kind = Relative } as ident -> find_tail scope ident
+  )
 
   let rec apply scope f : Ident.relative_t -> _ = function
     | { Ident.ident = [] } -> scope
@@ -636,205 +470,147 @@ module Scope = struct
       { scope with children }
     | { Ident.ident = name::rest } as ident ->
       let rec aux = function
-        | Some (Scope n) -> up (apply n f { ident with Ident.ident = rest })
-        | Some (Link { base; target; }) ->
-          let target = Ident.(any (resolve base target)) in
-          let target = get_shallow_scope scope target in
-          return scope (apply target f { ident with Ident.ident = rest })
-        | Some (Stack []) -> aux None
-        | Some (Stack (obj::objs)) ->
-          let scope = aux (Some obj) in
-          let lazy children = scope.children in
-          let child = StringMap.find name children in
-          let children = StringMap.add name (Stack (child::objs)) children in
-          { scope with children = lazy children }
+        | Some scope -> up (apply scope f { ident with Ident.ident = rest })
         | None ->
           let r = match Ident.prev ident with
             | Some (parent, last) ->
-              let parent_synth = get_shallow_scope scope (Ident.any parent) in
+              let parent_synth = get_obj scope (Ident.any parent) in
               apply parent_synth f last
             | None -> scope
           in
           List.fold_left (fun n _ -> up n) r rest
       in
-      aux (match down IdentSet.empty scope (Scope scope) name with
-        | Some (_,obj, _) -> Some obj
-        | None -> None
-      )
+      aux (down scope name)
 
   (* put replaces the obj at ident in scope *)
   let put scope ident obj =
-    let set name parent = match obj with
-      | Scope scope ->
-        let parent = Some (name, Pscope, parent) in
-        Some (Scope { scope with parent })
-      | Link _ | Stack _ -> Some obj
+    let set name parent =
+      let id = Ident.(extend parent.id name) in
+      let parent = Some (name, parent) in
+      Some { obj with parent; id } (* TODO: should update num? *)
     in
     Ident.(match ident with
       | { kind = Absolute } ->
-        let path = path scope in
+        let path = Ident.any (path scope) in
         let scope = apply (to_root scope) set { ident with kind = Relative } in
-        get_shallow_scope scope path
+        get_obj scope path
       | { kind = Relative } as ident -> apply scope set ident
     )
 
-  (* link creates a link or stacked link at ident in scope *)
-  let link scope ident base target location =
-    let link = Link { base; target; location } in
-    let set name scope =
-      try
-        let lazy children = scope.children in
-        match StringMap.find name children with
-        | (Scope _ | Link _) as obj -> Some (stack scope link [obj])
-        | Stack objs -> Some (stack scope link objs)
-      with Not_found -> Some link
-    in
-    Ident.(match ident with
-      | { kind = Absolute } ->
-        let scope = apply (to_root scope) set { ident with kind = Relative } in
-        (*log Debug.scope "after link placement";*)
-        (*log Debug.scope (string_of_scope scope);*)
-        rebase scope (Ident.any base)
-      | { kind = Relative } as ident ->
-        let tail, scope = rebase scope (Ident.any base) in
-        tail, apply scope set (Ident.append tail ident)
-    )
+  let get_rope scope ident = match get scope ident with
+    | None -> Err `Not_found
+    | Some { rope = lazy None } -> Err `No_template
+    | Some { rope = lazy (Some rope) } -> Ok rope
 
-  (* get_rope finds the topmost rope for an ident *)
-  let rec get_rope ?(traversed=IdentSet.empty) scope ident =
-    let rec aux traversed = function
-      | None | Some (Scope { rope = lazy None }) -> Err `Empty_hole
-      | Some (Scope { rope = lazy (Some rope) }) -> Ok rope
-      | Some (Link { base; target }) ->
-        let target = Ident.(any (resolve base target)) in
-        begin match traverse traversed scope target with
-          | Ok (traversed, scope) -> get_rope ~traversed scope target
-          | Err (`Disallowed_traversal _) as err -> err
-        end
-      | Some (Stack []) -> Err `Empty_hole
-      | Some (Stack (obj::objs)) -> match aux traversed (Some obj) with
-        | Err `Empty_hole -> aux traversed (Some (Stack objs))
-        | (Ok _ | Err (`Disallowed_traversal _)) as r -> r
-    in
-    aux traversed
-      (get_ traversed (fun x -> Some x) (fun _ _ _ -> None)
-         (function
-           | Scope { rope = lazy None } -> false
-           | _ -> true
-         )
-         scope ident)
+  let link ?(filter=IntSet.empty) bind scope src_id dst_id =
+    match get scope dst_id with
+    | None -> Err (`Dangling_link dst_id)
+    | Some dst ->
+      let src = get_obj (to_root dst) Ident.(any (resolve scope.id src_id)) in
+      let bound = bind dst src in
+      let filter = IntSet.add dst.serial filter in
+      let src_filter = IntSet.union src.filter filter in
+      if Ident.is_prefix scope.id (path dst)
+         || Ident.is_prefix (path scope) (path dst)
+      then
+        let { children = lazy bc } = bound in
+        let filtered = ref false in
+        let children = Lazy.from_val (StringMap.filter (fun _ v ->
+          let p = IntSet.mem v.serial src_filter in
+          if p then filtered := true;
+          not p
+        ) bc) in
+        let serial =
+          if !filtered
+          then (let r = !issue in incr issue; r)
+          else bound.serial
+        in
+        let prefilter = IntSet.union bound.prefilter (serials dst) in
+        Ok ({ bound with children; serial; prefilter },
+            filter)
+      else Ok (bound, filter)
 
-  (* TODO: This doesn't check traversal loops. Diverges? Can merge
-     with get's resolution somehow? *)
-  let rec chase_link acc t scope = function
-    | None -> Path (List.rev ("!"::acc), None)
-    | Some (Scope scope) ->
-      begin match Ident.next t with
-        | None -> Path (List.rev ("+"::acc), None)
-        | Some (next, rest) ->
-          chase_link acc rest scope (get scope (Ident.any next))
-      end
-    | Some (Stack stack) ->
-      let rec down_stack ss acc = function
-        | (Link _ as obj)::objs -> down_stack ((scope,obj)::ss) (obj::acc) objs
-        | (Stack st)::objs -> down_stack ss acc (st@objs)
-        | [] -> List.rev ss
-        | (Scope s)::objs ->
-          let s = match s.parent with
-            | None -> s
-            | Some (name, _, _) ->
-              { s with parent = Some (name, Pstack (acc,objs), scope) }
-          in
-          down_stack ((s, Scope s)::ss) (Scope s::acc) objs
-      in
-      let scope_stack = down_stack [] [] stack in
-      Path (List.rev acc, Some (Fan (List.map (fun (scope,obj) ->
-        chase_link [] t scope (Some obj)
-      ) scope_stack)))
-    | Some (Link link) ->
-      let target = Ident.(any (resolve link.base link.target)) in
-      let acc = Ident.to_string target::acc in
-      let tail, base = rebase scope target in
-      (*log Debug.expand ("chasing link after rebase of "
-                            ^(Ident.to_string target));*)
-      (*log Debug.expand (to_string scope);*)
-      (*log Debug.expand (to_string base);*)
-      let tail = Ident.append tail t in
-      let path = path base in
-      let acc = Ident.((to_string path)^"/"^(to_string (any tail)))::acc in
-      match Ident.next tail with
-      | None -> chase_link acc tail base (get base Ident.here)
-      | Some (nxt, rest) -> chase_link acc rest base (get base (Ident.any nxt))
+  let integrate_filters set scope =
+    let p = path scope in
+    IdentSet.fold (fun ident scope -> match get scope (Ident.any ident) with
+      | None -> scope
+      | Some scope ->
+        let scope = {
+          scope with prefilter = IntSet.empty; filter = scope.prefilter
+        } in
+        get_obj scope p
+    ) set scope
+end
 
-  (* expand marks all ancestor scopes of ident in scope as
-     expanded. It returns a rebase pair of the original location. It
-     can also fail to expand due to an empty hole or a dangling link. *)
-  let rec expand prov scope (original : Ident.absolute_t) ident =
-    let rec aux = function
-      | Link { base; target; } ->
-        let target = Ident.(any (resolve base target)) in
-        expand prov scope original target
-      | Stack ((Stack s)::bot) -> aux (Stack (s@bot))
-      | Stack ((Link link as obj)::bot) ->
-        begin match aux obj with
-          | Err `Empty_hole ->
-            let original = Ident.(to_string (any original)) in
-            (*log Debug.expand ("dangling link");*)
-            (*log Debug.expand (to_string scope);*)
-            let link_chain = Lazy.from_fun (fun () ->
-              chase_link [] Ident.here scope (Some obj)
-            ) in
-            Err (`Dangling_link (prov, original, link_chain))
-          | (Ok _ | Err _) as r -> r
-        end
-      | Stack ((Scope s)::bot) ->
-        let name = List.(hd (rev ident.Ident.ident)) in
-        let parent = up s in
-        aux (Scope { s with parent = Some (name, Pstack ([],bot), parent) })
-      | Stack [] -> Err `Empty_hole
-      | Scope target ->
-        if target.expanded
-        then Err (`Disallowed_expansion (prov, Ident.to_string (path target)))
-        else
-          let rec aux = function
-            | { expanded = true } | { parent = None } as n ->
-              let scope = { n with expanded = true } in
-              (*log Debug.expand Ident.("expand rebasing "
-                                          ^(to_string (any original)));*)
-              (*log Debug.expand (to_string scope);*)
-              let p, scope = rebase scope (Ident.any original) in
-              (*log Debug.expand (to_string scope);*)
-              (*log Debug.expand Ident.("expand moving to "
-                                     ^(to_string (any p))^"@"
-                                     ^(to_string (path scope)));*)
-              Ok (p, scope)
-            | { parent = Some (name,_,_) } as n ->
-              (*log Debug.expand Ident.("expanding up "^name);*)
-              (*log Debug.expand (to_string n);*)
-              aux (up { n with expanded = true })
-          in
-          aux target
+module Closure = struct
+  type 'rope frame =
+    | Scope of Ident.any_t * 'rope Scope.t
+    | Link of Ident.any_t * Ident.any_t
+  type 'rope t = 'rope frame list
+
+  let empty = []
+
+  let apply_frame filter scope = function
+    | Scope (id, v) ->
+      let scope = Scope.(overlay v (get_obj scope id)) in
+      Ok (scope, filter)
+    | Link (src,dst) ->
+      (*prerr_endline ("applying link closure to "
+                     ^(Ident.to_string (Scope.path scope)));
+      prerr_endline ("linking "
+                     ^(Ident.to_string src)
+                     ^" to "
+                     ^(Ident.to_string dst));*)
+      Scope.link ~filter Scope.rebind scope src dst
+
+  let string_of_frame = function
+    | Scope (id, scope) ->
+      Printf.sprintf "%s : %s\n" (Ident.to_string id) (Scope.to_string scope)
+    | Link (src,dst) ->
+      Printf.sprintf "%s -> %s\n" (Ident.to_string src) (Ident.to_string dst)
+
+  let apply filter closure scope =
+    let p = Scope.path scope in
+    let srcset = List.fold_left (fun s -> function
+      | Link (src,_) -> IdentSet.add (Ident.resolve p src) s
+      | Scope _ -> s
+    ) IdentSet.empty closure in
+    let rec aux scope filter = function
+      | [] -> Ok (Scope.integrate_filters srcset scope, filter)
+      | frame::rest -> match apply_frame filter scope frame with
+        | Ok (scope,filter) ->
+          let scope = Scope.get_obj scope (Ident.any p) in
+          aux scope filter rest
+        | Err _ as err -> err
     in
-    (*log Debug.expand Ident.("entering expand for "^(to_string ident));*)
-    (*log Debug.expand (to_string scope);*)
-    match get scope (Ident.any ident) with
-    | None -> Err `Empty_hole
-    | Some obj -> aux obj
+    aux scope filter (List.rev closure)
+
+  let link src dst = Link (src, dst)
+
+  let scope ident scope = Scope (ident, scope)
+
+  let push closure frame = frame::closure
+
+  let to_string closure =
+    let buf = Buffer.create (List.length closure * 32) in
+    List.iter (fun frame ->
+      Buffer.add_string buf (string_of_frame frame)
+    ) closure;
+    Buffer.contents buf
 
 end
 
 module Hole = struct
   type ('rope, 'value) reference = {
     name : Ident.any_t;
-    closure : 'rope Scope.t; (* local scope only *)
+    closure : 'rope Closure.t;
     default : 'value option;
     with_ : Ident.absolute_t option; (* only for reserialization *)
   }
   type ('rope, 'value) t =
     | Reference of ('rope, 'value) reference
     | Conditional of Condition.t * 'value * 'value option
-    | Snoop of string
-    | Chase of string * Ident.any_t
+    | Snoop of string * Ident.any_t option
 
   let name { name } = name
 
@@ -845,8 +621,9 @@ module Hole = struct
 
   let new_conditional cond body ?els () = Conditional (cond, body, els)
 
-  let new_snoop label = Snoop label
-  let new_chase label name = Chase (label, name)
+  let new_snoop loc label = function
+    | None -> Snoop (label,None)
+    | Some on -> Snoop (label, Some (Ident.of_string loc on))
 end
 
 let empty_seq = [ `El_start ((xmlns,"seq"),[]); `El_end ]
@@ -854,10 +631,20 @@ let empty_seq = [ `El_start ((xmlns,"seq"),[]); `El_end ]
 module Env = struct
   type 'rope t = {
     base : 'rope Scope.t;
-    path : Ident.relative_t;
+    expanded : IntSet.t;
+    linked : IntSet.t;
   }
 
-  let create base path = { base; path; }
+  let create base = { base; expanded = IntSet.empty; linked = IntSet.empty; }
+  let expand prov env name = match Scope.get env.base name with
+    | None -> Err `Empty_hole
+    | Some ({ Scope.serial } as base) ->
+      if IntSet.mem serial env.expanded
+      then Err (`Disallowed_expansion (prov, Ident.to_string name))
+      else
+        let expanded = IntSet.add serial env.expanded in
+        Ok { env with base; expanded; }
+
 end
 
 module type PATCH = sig
@@ -872,8 +659,7 @@ module rec Patch : PATCH
   module Rope = Rope
 
   let exists env ident =
-    let tail_name = Ident.append env.Env.path ident in
-    match Scope.get env.Env.base tail_name with Some _ -> true | None -> false
+    match Scope.get env.Env.base ident with Some _ -> true | None -> false
 
   let dump env partial prov hole s =
     let dump = Rope.of_list ~prov [
@@ -886,18 +672,16 @@ module rec Patch : PATCH
 
   let rec patch_hole ~partial : Rope.patch =
     fun env prov -> function
-      | Hole.Chase (label, ident) as hole ->
-        let { Env.base } = env in
-        let ident = Ident.append env.Env.path ident in
-        let base_path = Scope.path base in
-        let root = Scope.to_root base in
-        let ident = Ident.({ (resolve base_path ident) with kind = Relative }) in
-        let chain = Scope.(chase_link [] ident root (Some (Scope root))) in
-        dump env partial prov hole (label^": "^
-                                    Ident.(to_string (any ident))^" "^
-                                    (string_of_chain chain))
-      | Hole.Snoop label as hole ->
+      | Hole.Snoop (label,None) as hole ->
         dump env partial prov hole (label^"\n"^(Scope.to_string env.Env.base))
+      | Hole.Snoop (label,Some on) as hole ->
+        begin match Scope.get env.Env.base on with
+          | None ->
+            dump env partial prov hole (label^" missing "^Ident.to_string on)
+          | Some scope ->
+            let scope = { scope with Scope.parent = None } in
+            dump env partial prov hole (label^"\n"^(Scope.to_string scope))
+        end
       | Hole.Conditional (Condition.Exists exid, body, els) -> Rope.(
         if exists env exid then Recurse (env, body)
         else if partial
@@ -919,41 +703,35 @@ module rec Patch : PATCH
         (*log Debug.scope "scope before overlay";*)
         (*log Debug.scope (Scope.to_string base);*)
         (*log Debug.scope "closure before overlay";*)
-        (*log Debug.scope (Scope.to_string hole.Hole.closure);*)
-        let base_path = Scope.path base in
-        let root = Scope.to_root base in
-        let closure_path = Ident.resolve base_path env.Env.path in
+        (*log Debug.scope (Closure.to_string hole.Hole.closure);*)
         let closure = hole.Hole.closure in
-        let tail, base =
-          Scope.(rebase (overlay closure root) (Ident.any closure_path))
-        in
-        (*log Debug.scope Ident.("rebase backed off "
-                             ^(to_string (any tail))
-                             ^" from "^(to_string (any closure_path)));*)
         let name = Hole.name hole in
         (*log Debug.scope Ident.(
-          "expanding "^(to_string name)^"@"^(to_string (any tail))^" with"
+          "expanding "^(to_string name)^" with"
           );*)
         (*log Debug.scope (Scope.to_string base);*)
-        let tail_name = Ident.append tail name in
-        let ident = Ident.resolve base_path tail_name in
+        let ident = Ident.resolve base.Scope.id name in
         let env, result =
-          match Scope.get_rope base tail_name with
-          | Err (`Disallowed_traversal ident) ->
-            (* TODO: This should build prov for useful backtrace
-               (probably using the link prov somehow) *)
-            env,
-            (Err (`Disallowed_traversal (prov, Ident.to_string ident)))
-          | Err `Empty_hole ->
-            env,
-            (Err (`Empty_hole (Some prov, Ident.(to_string (any ident)))))
-          | Ok rope ->
-            match Scope.expand prov base ident tail_name with
-            | Err (`Disallowed_expansion _ | `Dangling_link _) as result ->
-              env, result
-            | Err `Empty_hole ->
-              env, (Err (`Empty_hole (Some prov, Ident.(to_string (any ident)))))
-            | Ok (path, base) -> { Env.base; path; }, Ok rope
+          match Closure.apply env.Env.linked closure base with
+          | Err (`Dangling_link dst_id) ->
+            let dst = Ident.to_string dst_id in
+            let name = Ident.to_string name in
+            env, Err (`Dangling_link (prov, dst, name))
+          | Ok (b,linked) ->
+            let base = Scope.get_obj b (Ident.any base.Scope.id) in
+            let env = { env with Env.base; linked } in
+            match Scope.get_rope base name with
+            | Err (`Not_found | `No_template) ->
+              env,
+              (Err (`Empty_hole (Some prov, Ident.(to_string (any ident)))))
+            | Ok rope ->
+              match Env.expand prov env name with
+              | Err (`Disallowed_expansion _) as result ->
+                env, result
+              | Err `Empty_hole ->
+                env,
+                (Err (`Empty_hole (Some prov, Ident.(to_string (any ident)))))
+              | Ok env -> env, Ok rope
         in
         match result with
         | Ok t ->
@@ -979,7 +757,7 @@ module rec Patch : PATCH
           end
           | None -> match err with
             | #binding_error when partial ->
-              let name = Ident.(any (resolve base_path tail_name)) in
+              let name = Ident.any ident in
               Rope.Replace (Rope.make_hole ~prov (Hole.Reference {
                 hole with Hole.name
               }))
@@ -1001,12 +779,11 @@ and Template : XmlRope.TEMPLATE
 
   (* TODO: closure bindings *)
   let signals_of_hole ~prov (env : env) = Hole.(function
-    | Snoop label -> [`El_start ((xmlns,"snoop"),[("","label"),label]); `El_end]
-    | Chase (label,ident) ->
-      [`El_start ((xmlns,"chase"),[
-         ("","label"),label;
-         ("","name"), Ident.to_string ident;
-       ]); `El_end]
+    | Snoop (label,None) ->
+      [`El_start ((xmlns,"snoop"),[("","label"),label]); `El_end]
+    | Snoop (label,Some on) ->
+      let on = Ident.to_string on in
+      [`El_start ((xmlns,"snoop"),[("","label"),label; ("","on"),on]); `El_end]
     | Conditional (cond, body, els) ->
       let attrs = attrs_of_cond cond in
       let patch = Patch.patch_hole ~partial:true in
@@ -1016,8 +793,8 @@ and Template : XmlRope.TEMPLATE
       end @ [ `El_end ] @ (match els with None -> [] | Some e ->
         (`El_start ((xmlns,"else"),[]))::(Rope.to_list ~patch env e)@[`El_end])
     | Reference hole ->
-      let base_path = Scope.path env.Env.base in
-      let ident = Ident.(resolve (resolve base_path env.Env.path) hole.name) in
+      let base_path = env.Env.base.Scope.id in
+      let ident = Ident.(resolve base_path hole.name) in
       let attrs = (("","name"),Ident.(to_string (any ident)))::(
         match hole.with_ with
         | None -> []
@@ -1071,8 +848,8 @@ module XmlStack = struct
     | (h,(d,b)::bs)::t when h = d -> (h-1,bs)::t, b
     | (h,bs)::t -> (h-1,bs)::t, bindings
   let pop = function [] -> [] | _::t -> t
-  let peek = function
-    | [] | (_,[])::_ -> Scope.empty
+  let peek : _ -> Rope.t Closure.t = function
+    | [] | (_,[])::_ -> Closure.empty
     | (_,(_,s)::_)::_ -> s
 
   let save_bindings bindings : 'a t -> 'a t = function
@@ -1081,14 +858,13 @@ module XmlStack = struct
     | (d,bs)::s -> (d,(d,bindings)::bs)::s
     | [] -> []
 
-  let add_binding (name : Ident.absolute_t) value (stack : Rope.t Scope.t t) =
-    let name = Ident.any name in
+  let add_frame frame (stack : Rope.t Closure.t t) =
     match stack with
-    | (d,[])::s -> (d,[d,Scope.put Scope.empty name value])::s
+    | (d,[])::s -> (d,[d,Closure.(push empty frame)])::s
     | (d,(ld,root)::r)::s when ld = d ->
-      (d,(ld,Scope.put root name value)::r)::s
+      (d,(ld,Closure.push root frame)::r)::s
     | (d,(((_,root)::_) as r))::s ->
-      (d,(d,Scope.put root name value)::r)::s
+      (d,(d,Closure.push root frame)::r)::s
     | [] -> []
 end
 
@@ -1147,7 +923,7 @@ let rtrim = function
     else r
   | s -> s
 
-let empty_blueprint = Scope.empty
+let empty_blueprint () = Scope.empty ()
 
 let xml_source xml_input =
   xml_input,
@@ -1158,7 +934,7 @@ let xml_source xml_input =
 
 let bind ?(partial=false) ~sink out bindings rope =
   let patch = patch_hole ~partial in
-  Rope.to_stream ~patch ~sink (Env.create bindings Ident.here) out rope
+  Rope.to_stream ~patch ~sink (Env.create bindings) out rope
 
 let xml_sink ?(partial=false) () =
   let depth = ref 0 in (* TODO: this isn't very nice... *)
@@ -1231,44 +1007,62 @@ let bind_to_output ?partial out bindings rope =
 
 type ctxt = {
   acc : Rope.t; (* accumulated template*)
-  path : Ident.absolute_t; (* actual path *)
-  local: Rope.t Scope.t XmlStack.t; (* local closure *)
-  scope: Rope.t Scope.t; (* current environment *)
-  tail : Ident.relative_t; (* offset in current environment to actual node *)
-  (* Should hold: scope + tail = path *)
+  local: Rope.t Closure.t XmlStack.t; (* local closure *)
+  env : Rope.t Env.t; (* current environment *)
+  tail : Ident.relative_t;
+  path : Ident.absolute_t;
+  (* invariant: env base scope should be at path + tail *)
 }
 
 let root_ctxt = {
   acc = Rope.empty;
-  path = Ident.root;
   local = XmlStack.empty;
-  scope = empty_blueprint;
+  env = Env.create (empty_blueprint ());
+  path = Ident.root;
   tail = Ident.here;
 }
 
-let add_link (path : Ident.absolute_t) tail scope from to_ prov loc =
+(* TODO: we really should work out a way to signal intent to
+   distinguish closure-links from dangling mistakes. *)
+let fail_on_dangle scope = function
+  | Ok (scope,_) -> scope
+  | Err (`Dangling_link dst_id) -> scope
+  (*let dst = Ident.to_string dst_id in
+    let path = Ident.to_string path in
+    raise (Error (`Dangling_link (prov, dst, path)))*)
+
+let add_link (path : Ident.absolute_t) scope from to_ loc prov =
   let path_any = Ident.any path in
-  let prov = Prov.with_loc prov loc in
+  (*let prov = Prov.with_loc prov loc in*)
   match from, to_ with
-  | None, None -> (tail, scope), path_any (* TODO: something? *)
+  | None, None -> scope, path_any (* TODO: something? *)
   | Some src, None ->
-    let src = Ident.(append tail (of_string loc src)) in
-    Scope.link scope src path path_any prov, src
+    let src = Ident.of_string loc src in
+    fail_on_dangle scope (Scope.link Scope.overlay scope src path_any),
+    src
   | None, Some dst ->
-    let dst = Ident.(append tail (of_string loc dst)) in
-    Scope.link scope path_any path dst prov, path_any
+    let dst = Ident.of_string loc dst in
+    fail_on_dangle scope (Scope.link Scope.overlay scope path_any dst),
+    path_any
   | Some src, Some dst ->
-    let src = Ident.(append tail (of_string loc src)) in
-    let dst = Ident.(append tail (of_string loc dst)) in
+    let src = Ident.of_string loc src in
+    let dst = Ident.of_string loc dst in
     (*log Debug.scope Ident.("link "^(to_string src)^" -> "^(to_string dst));*)
     (*log Debug.scope (Scope.to_string scope);*)
-    Scope.link scope src path dst prov, src
+    fail_on_dangle scope (Scope.link Scope.overlay scope src dst),
+    src
 
 let of_stream ~prov ~source =
   let open Scope in
-  let rec run stack seq ctxt = function
+  let rec run stack seq ctxt =
+    assert Ident.(
+      compare (any ctxt.path) (any (resolve (path ctxt.env.Env.base) ctxt.tail))
+      = 0
+    );
+    function
     | acc, None ->
-      acc, with_rope ctxt.scope Rope.(ctxt.acc ++ (of_list ~prov (List.rev seq)))
+      let scope = ctxt.env.Env.base in
+      acc, with_rope scope Rope.(ctxt.acc ++ (of_list ~prov (List.rev seq)))
     | acc, Some (loc, el) -> match el with
       | `El_start ((ns,el),attrs) when ns=xmlns ->
         handle stack seq ctxt acc attrs loc el
@@ -1279,14 +1073,17 @@ let of_stream ~prov ~source =
         begin match XmlStack.pop stack with
           | [] ->
             let rope = Rope.(ctxt.acc ++ (of_list ~prov (List.rev seq))) in
-            acc, with_rope ctxt.scope rope
+            let scope = ctxt.env.Env.base in
+            acc, with_rope scope rope
           | stack -> run stack seq ctxt (source acc)
         end
       | `El_end ->
-        let stack, scope = XmlStack.decr ctxt.scope stack in
-        let local, _ = XmlStack.(decr Scope.empty ctxt.local) in
-        let ctxt = { ctxt with local } in
-        run stack (`El_end::seq) { ctxt with scope } (source acc)
+        let stack, c = XmlStack.decr ctxt stack in
+        let local, _ = XmlStack.(decr Closure.empty ctxt.local) in
+        let path = c.path in
+        let tail = c.tail in
+        let ctxt = { ctxt with env = c.env; local; path; tail; } in
+        run stack (`El_end::seq) ctxt (source acc)
       | (`Dtd _ | `Data _) as signal ->
         run stack (signal::seq) ctxt (source acc)
 
@@ -1295,69 +1092,68 @@ let of_stream ~prov ~source =
       let literal = of_list ~prov (List.rev seq) in
       let name = get_attr loc "insert" attrs "name" in
       let to_= get_attr_opt attrs "with" in
-      let path = ctxt.path in
+      let base = ctxt.env.Env.base in
       let with_ = match to_ with
-        | Some to_ -> Some Ident.(resolve path (of_string loc to_))
+        | Some to_ -> Some (Ident.of_string loc to_)
         | None -> None
       in
       (*log Debug.scope ("insert "^name^(match to_ with
         | None -> ""
         | Some s -> " with "^s
-      ));*)
-      let ctxtb, local, with_exists = match with_ with
-        | None -> ctxt, (XmlStack.peek ctxt.local), true
+      )^" @ "^Ident.(to_string (any ctxt.path)));*)
+      let name_id = Ident.of_string loc name in
+      let id = Ident.(append ctxt.tail name_id) in
+      let local, with_exists = match with_ with
+        | None -> (XmlStack.peek ctxt.local), true
         | Some with_ ->
           let local = XmlStack.peek ctxt.local in
-          let (_,local),_ =
-            add_link path Ident.here local (Some name) to_ prov loc
-          in
-          let (t,s),_ =
-            add_link path ctxt.tail ctxt.scope (Some name) to_ prov loc
-          in
-          { ctxt with scope = s; tail = t },
-          Scope.to_root local,
-          match get s Ident.(any (append t with_)) with
+          let local = Closure.(push local (link name_id with_)) in
+          local,
+          match get base Ident.(append ctxt.tail with_) with
           | Some _ -> true
           | None -> false
       in
-      let name = Ident.of_string loc name in
-      let ident = Ident.resolve path name in
-      (*log Debug.scope Ident.("getting rope for "^(to_string (any ident)));*)
-      begin match get_rope ctxt.scope (Ident.any ident),
-                  with_exists with
-        | Err (`Disallowed_traversal err), _ ->
-          raise (Error (`Disallowed_traversal (prov, Ident.to_string err)))
-        | Err `Empty_hole, _ | _, false ->
-          (*log Debug.scope ("add hole for "^Ident.(to_string (any ident)));*)
-          (*log Debug.scope (Scope.to_string ctxt.scope);*)
+      let with_ = match with_ with
+        | Some with_ ->
+          let with_ = Ident.(resolve ctxt.path with_) in
+          Some with_
+        | None -> None
+      in
+      (*log Debug.scope Ident.("getting rope for "^
+                                 (to_string (any id)));*)
+      (*log Debug.scope (Scope.to_string base);*)
+      begin match get_rope base id, with_exists with
+        | Err (`Not_found | `No_template), _ | _, false ->
+          (*log Debug.scope ("add hole for "^Ident.(to_string (any id)));*)
+          (*log Debug.scope (Scope.to_string ctxt.env.Env.base);*)
           (*log Debug.scope ("local closure");*)
-          (*log Debug.scope (Scope.to_string local);*)
-          let stack, ctxth, c =
-            add_hole stack ctxtb local acc name ?with_ literal loc
+          (*log Debug.scope (Closure.to_string local);*)
+          let stack, ctxt, c =
+            add_hole stack ctxt local acc name_id ?with_ literal loc
           in
-          let ctxt = { ctxth with scope = ctxt.scope; tail = ctxt.tail; } in
           run stack [] ctxt c
         | Ok template, true ->
           let prov = Prov.with_loc prov loc in
-          let id = Ident.any ident in
-          match Scope.expand prov ctxtb.scope ident id with
+          let scope = Scope.get_obj base (Ident.any ctxt.tail) in
+          let base = match with_ with
+            | None -> scope
+            | Some _ -> fst (add_link ctxt.path scope (Some name) to_ loc prov)
+          in
+          let env = { ctxt.env with Env.base } in
+          let path = path base in
+          let ctxtb = { ctxt with tail = Ident.here; env; path; } in
+          match Env.expand prov ctxtb.env id with
           | Err `Empty_hole ->
             raise (Error (`Empty_hole (Some prov, Ident.to_string id)))
           | Err (`Disallowed_expansion x) ->
             raise (Error (`Disallowed_expansion x))
-          | Err (`Dangling_link x) ->
-            let stack, ctxth, c =
-              add_hole stack ctxtb local acc name ?with_ literal loc
-            in
-            let ctxt = { ctxth with scope = ctxt.scope; tail = ctxt.tail; } in
-            run stack [] ctxt c
-          | Ok (tail, base) ->
+          | Ok env ->
             let template = Rope.map_prov (fun parent ->
               let ident_s = Ident.to_string id in
               Prov.append_incl parent ident_s prov
             ) template in
             let patch_hole = patch_hole ~partial:true in
-            let template = patch patch_hole (Env.create base tail) template in
+            let template = patch patch_hole env template in
             (*log Debug.scope ("done compile patching "^Ident.to_string id);*)
             (* Now, we throw away any default value. *)
             let acc, _default = run [0,[]] [] ctxtb (source acc) in
@@ -1392,22 +1188,23 @@ let of_stream ~prov ~source =
       let subctxt = { ctxt with acc = Rope.empty } in
       (* TODO: Warn that this is being thrown away (for now)? *)
       let acc, _content = run [0,[]] [] subctxt (source acc) in
-      let local = XmlStack.peek ctxt.local in
-      let (ltl, local), lpath =
-        add_link ctxt.path Ident.here local from to_ prov loc
+      let base = ctxt.env.Env.base in
+      let from_id = match from with
+        | Some from -> Ident.of_string loc from
+        | None -> Ident.any ctxt.path
       in
-      let ltl = Ident.append ltl lpath in
-      (*log Debug.scope ("link local for "^Ident.(to_string ltl));*)
-      (*log Debug.scope (Scope.to_string local);*)
-      let link_id = Ident.resolve (path local) ltl in
-      let link = get_obj local ltl in
-      let local = XmlStack.add_binding link_id link ctxt.local in
-      (*log Debug.scope (Scope.to_string (XmlStack.peek local));*)
-      let (tail, scope),_ =
-        add_link ctxt.path ctxt.tail ctxt.scope from to_ prov loc
+      let to_id = match to_ with
+        | Some to_ -> Ident.of_string loc to_
+        | None -> Ident.any ctxt.path
       in
-      let stack = XmlStack.save_bindings ctxt.scope stack in
-      run stack seq { ctxt with scope; tail; local; } (source acc)
+      let local = XmlStack.add_frame (Closure.link from_id to_id) ctxt.local in
+      let scope,_ = add_link ctxt.path base from to_ loc prov in
+      let stack = XmlStack.save_bindings ctxt stack in
+      (*log Debug.scope ("scope after explicit link");*)
+      (*log Debug.scope (Scope.to_string scope);*)
+      let base_path = Ident.any (path base) in
+      let env = { ctxt.env with Env.base = get_obj scope base_path } in
+      run stack seq { ctxt with env; local; } (source acc)
 
     | "seq" ->
       let ctxt = { ctxt with local = XmlStack.push ctxt.local } in
@@ -1417,18 +1214,17 @@ let of_stream ~prov ~source =
       let seq = rtrim seq in
       let name = Ident.of_string loc (get_attr loc "let" attrs "name") in
       (*log Debug.scope Ident.("let "^(to_string name)
-                             ^"@"^(to_string (any ctxt.path))
-                             ^"/"^(to_string (any ctxt.tail)));*)
-      (*log Debug.scope (Scope.to_string ctxt.scope);*)
-      let ident = Ident.(resolve ctxt.path (append ctxt.tail name)) in
-      let stack = XmlStack.save_bindings ctxt.scope stack in
-      let letb = Scope.get_shallow_scope ctxt.scope (Ident.any ident) in
-      (*log Debug.scope Ident.("letb for "^(to_string name));*)
-      (*log Debug.scope (Scope.to_string letb);*)
+                             ^"@"^(to_string (any ctxt.path)));*)
+      (*log Debug.scope (Scope.to_string ctxt.env.Env.base);*)
+      let base = ctxt.env.Env.base in
+      let stack = XmlStack.save_bindings ctxt stack in
+      let path = Ident.resolve ctxt.path name in
+      let subbase, tail = Scope.split base (Ident.append ctxt.tail name) in
       let subctxt = {
-        acc = Rope.empty; path = ident; local = XmlStack.empty;
-        scope = letb; tail = Ident.here;
+        acc = Rope.empty; local = XmlStack.empty;
+        env = { ctxt.env with Env.base = subbase }; path; tail;
       } in
+      let path = Ident.any path in
       let acc, letb = run [0,[]] [] subctxt (source acc) in
       let rope = match letb.rope with
         | lazy None -> letb.rope
@@ -1439,16 +1235,19 @@ let of_stream ~prov ~source =
           then Lazy.from_val None
           else Lazy.from_val (Some r)
       in
-      let letb = { letb with rope } in
+      let letb = Scope.get_obj letb path in
+      let letb = with_maybe_rope letb rope in
       (*log Debug.scope ("after recurse "^(Ident.to_string name));*)
       (*log Debug.scope (Scope.to_string letb);*)
-      let scope = Scope.put ctxt.scope (Ident.any ident) (Scope letb) in
-      let ctxt = {
-        ctxt with local = XmlStack.add_binding ident (Scope letb) ctxt.local;
-                  scope;
-      } in
+      let scope = Scope.put base path letb in
       (*log Debug.scope ("after put "^(Ident.to_string name));*)
       (*log Debug.scope (Scope.to_string scope);*)
+      let scope = Scope.get_obj scope (Ident.any ctxt.tail) in
+      (*log Debug.scope ("after pos reset "^(Ident.to_string name));*)
+      (*log Debug.scope (Scope.to_string scope);*)
+      let env = { ctxt.env with Env.base = scope } in
+      let local = XmlStack.add_frame (Closure.scope name letb) ctxt.local in
+      let ctxt = { ctxt with local; env; tail = Ident.here } in
       run stack seq ctxt (source acc)
 
     | "if" ->
@@ -1483,11 +1282,12 @@ let of_stream ~prov ~source =
         let rope = ctxt.acc ++ literal ++ (make_hole ~prov hole) in
         run stack [] { ctxt with acc = rope } c
       in
+      (* TODO: insert now with else *)
       begin match exists with
         | None -> insert_now ()
         | Some id ->
           let exid = Ident.of_string loc id in
-          match Scope.get ctxt.scope exid with
+          match Scope.get ctxt.env.Env.base (Ident.append ctxt.tail exid) with
           | Some _ -> insert_now ()
           | None -> defer_on (Condition.Exists exid)
       end
@@ -1498,20 +1298,10 @@ let of_stream ~prov ~source =
     | "snoop" ->
       let literal = of_list ~prov (List.rev seq) in
       let label = get_attr loc "snoop" attrs "label" in
+      let on = get_attr_opt attrs "on" in
       let subctxt = { ctxt with acc = Rope.empty } in
       let acc, _content = run [0,[]] [] subctxt (source acc) in
-      let hole = Hole.new_snoop label in
-      let rope = ctxt.acc ++ literal ++ (make_hole ~prov hole) in
-      run stack [] { ctxt with acc = rope } (source acc)
-
-    | "chase" ->
-      let literal = of_list ~prov (List.rev seq) in
-      let label = get_attr loc "chase" attrs "label" in
-      let name = get_attr loc "chase" attrs "name" in
-      let ident = Ident.of_string loc name in
-      let subctxt = { ctxt with acc = Rope.empty } in
-      let acc, _content = run [0,[]] [] subctxt (source acc) in
-      let hole = Hole.new_chase label ident in
+      let hole = Hole.new_snoop loc label on in
       let rope = ctxt.acc ++ literal ++ (make_hole ~prov hole) in
       run stack [] { ctxt with acc = rope } (source acc)
 
@@ -1539,26 +1329,25 @@ let of_stream ~prov ~source =
   fun acc ->
     run XmlStack.empty [] root_ctxt (source acc)
 
-
 module Tree = struct
   let empty = Scope.empty
 
   (* TODO: raise if ident is invalid *)
   let add key obj scope =
-    Scope.put scope (Ident.of_string (-1,-1) key) (Scope.Scope obj)
+    Scope.put scope (Ident.of_string (-1,-1) key) obj
 
-  let tag tag = (tag, empty)
+  let tag tag = (tag, empty ())
 
   let of_kv kv = List.fold_left (fun scope (key, obj) ->
     add key obj scope
-  ) empty kv
+  ) (empty ()) kv
 
   let of_kv_maybe kv = List.fold_left (fun scope -> function
     | key, None -> scope
     | key, Some obj -> add key obj scope
-  ) empty kv
+  ) (empty ()) kv
 
-  let of_string s = { empty with Scope.rope = Lazy.from_fun (fun () ->
+  let of_string s = { (empty ()) with Scope.rope = Lazy.from_fun (fun () ->
     let prov = Prov.({
       src = Stream "Blueprint.Tree.of_string";
       loc = None;
@@ -1577,9 +1366,19 @@ module Tree = struct
       | None -> Some (of_kv ["head", next])
     ) None list with
     | Some t -> t
-    | None -> empty
+    | None -> (empty ())
 
   let of_cons name blue = of_kv [ name, blue ]
 
   let of_cons_string name s = of_kv [ name, of_string s ]
+
+  (* This is sad. Is there a better way? *)
+  let rec root scope =
+    let { Scope.id; children } = scope in
+    let children = Lazy.from_fun (fun () ->
+      StringMap.mapi (fun k v ->
+        root { v with Scope.id = Ident.extend id k }
+      ) (Lazy.force children)
+    ) in
+    { scope with Scope.children }
 end

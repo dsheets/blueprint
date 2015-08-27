@@ -79,7 +79,7 @@ let compose_cmd =
   ]
   in
   Term.(
-    ret (pure (compose Blueprint.Scope.empty) $ partial $ templates),
+    ret (pure (compose (Blueprint.Scope.empty ())) $ partial $ templates),
     info exec_name ~version ~man
   )
 

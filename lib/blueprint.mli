@@ -25,13 +25,9 @@ module Prov : sig
   }
 end
 
-type link_chain =
-  | Path of string list * link_chain option
-  | Fan of link_chain list
-
 type binding_error = [
   | `Empty_hole of Prov.t option * string
-  | `Dangling_link of Prov.t * string * link_chain Lazy.t
+  | `Dangling_link of Prov.t * string * string
 ]
 
 type expansion_error = [
@@ -41,7 +37,6 @@ type expansion_error = [
 
 type error = [
   | expansion_error
-  | `Disallowed_traversal of Prov.t * string
   | `Bad_ident of Prov.loc * string
   | `Unknown_tag of Prov.loc * string
   | `Missing_attribute of Prov.loc option * string * string
@@ -71,27 +66,20 @@ module Ident : sig
   type any_t = any t
 end
 
+module IntSet : Set.S with type elt = int
+
 module Scope : sig
-  type link = {
-    base : Ident.absolute_t;
-    target : Ident.any_t;
-    location : Prov.t;
-  }
   type 'rope t
-  type 'rope obj =
-    | Scope of 'rope t
-    | Link of link
-    | Stack of 'rope obj list
 
   val to_string : 'a t -> string
 
-  val empty : 'a t
+  val empty : unit -> 'a t
 
   val template : 'rope t -> 'rope option Lazy.t
 
   val overlay : 'rope t -> 'rope t -> 'rope t
 
-  val find : 'rope t -> string -> 'rope obj option
+  val find : 'rope t -> string -> 'rope t option
 end
 
 module Hole : sig
@@ -101,7 +89,7 @@ end
 module Env : sig
   type 'rope t
 
-  val create : 'rope Scope.t -> Ident.relative_t -> 'rope t
+  val create : 'rope Scope.t -> 'rope t
 end
 
 module rec Template :
@@ -139,7 +127,7 @@ val bind_to_output :
   ?partial:bool -> out_channel -> Rope.t Scope.t -> Rope.t -> unit
 
 module Tree : sig
-  val empty : t
+  val empty : unit -> t
 
   val add : string -> t -> t -> t
 
@@ -152,4 +140,6 @@ module Tree : sig
   val of_list : t list -> t
   val of_cons : string -> t -> t
   val of_cons_string : string -> string -> t
+
+  val root : t -> t
 end
