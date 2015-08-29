@@ -1235,7 +1235,7 @@ let of_stream ~prov ~source =
           let newr = Rope.map_signals rtrim_all r in
           if Rope.is_empty newr
           then Lazy.from_val None
-          else Lazy.from_val (Some r)
+          else Lazy.from_val (Some (Rope.optimize r))
       in
       let letb = Scope.get_obj letb path in
       let letb = with_maybe_rope letb rope in

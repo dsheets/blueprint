@@ -113,8 +113,8 @@ struct
 
   (* TODO: could optimize if prov = prov' *)
   let concat a b = match a, b with
-    | atom, Sequence (fropes, rropes) -> Sequence (atom::fropes, rropes)
     | Sequence (fropes, rropes), atom -> Sequence (fropes, atom::rropes)
+    | atom, Sequence (fropes, rropes) -> Sequence (atom::fropes, rropes)
     | atom, atom' -> Sequence ([atom; atom'], [])
 
   let (++) = concat
@@ -130,7 +130,21 @@ struct
     | Hole (_,_) -> false
 
   (* TODO: Should re-arrange for optimal access *)
-  let optimize x = x
+  let rec optimize = function
+    | Literal (prov, (f, r)) -> Literal (prov, (f@(List.rev r), []))
+    | Hole _ | Attrs _ as x -> x
+    | Sequence ([x], []) -> optimize x
+    | Sequence (xs, []) ->
+      begin match opt_seq xs with
+        | [] -> empty
+        | [x] -> x
+        | xs -> Sequence (xs, [])
+      end
+    | Sequence (f, r) -> Sequence (f@(List.rev r), [])
+  and opt_seq = function
+    | [] -> []
+    | (Sequence (f,r))::xs -> (opt_seq (f@(List.rev r)))@(opt_seq xs)
+    | x::xs -> (optimize x)::(opt_seq xs)
 
   (* TODO: Should optimize first in order to pass f contiguous signals *)
   let rec map_signals f x = match x with
