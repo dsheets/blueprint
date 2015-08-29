@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html>
   <body>
     <t:insert name="x" with="data">No x with data.</t:insert>

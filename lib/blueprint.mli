@@ -115,9 +115,9 @@ val bind :
   sink:'acc Rope.sink ->
   'acc -> Rope.t Scope.t -> Rope.t -> 'acc
 
-val xml_sink :
-  ?partial:bool -> unit ->
-  (Prov.t -> Xmlm.output -> Xmlm.signal list -> Xmlm.output)
+val sink :
+  ?partial:bool -> ('a -> Xmlm.signal -> 'a) ->
+  (Prov.t -> 'a -> Xmlm.signal list -> 'a)
 
 val buffer_sink :
   ?partial:bool -> Buffer.t ->

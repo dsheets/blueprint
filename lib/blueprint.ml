@@ -936,25 +936,25 @@ let bind ?(partial=false) ~sink out bindings rope =
   let patch = patch_hole ~partial in
   Rope.to_stream ~patch ~sink (Env.create bindings) out rope
 
-let xml_sink ?(partial=false) () =
+let sink ?(partial=false) push =
   let depth = ref 0 in (* TODO: this isn't very nice... *)
   let start = ref true in
   let after_root = ref false in
   let rec output prov out = function
     | (`Data _ | `El_start _ | `El_end) as s when !start ->
       start := false;
-      Xmlm.output out (`Dtd None);
+      let out = push out (`Dtd None) in
       output prov out s
     | `Dtd _ as s when !start ->
       start := false;
       output prov out s
-    | `Data s when !depth = 0 && is_ws s -> ()
+    | `Data s when !depth = 0 && is_ws s -> out
     | (`Data _ | `Dtd _) as signal ->
       if !after_root
       then raise (Error (`Data_after_root prov.Prov.loc));
-      Xmlm.output out signal
-    | (`El_start ((ns,tag),attrs))
-      when not partial && ns = xmlns ->
+      push out signal
+    | (`El_start ((ns,tag),attrs)) when not partial && ns = xmlns ->
+      (* TODO: this is wrong. fix it. *)
       begin try let name = List.assoc ("","name") attrs in
           raise (Error (`Empty_hole (Some prov, name)))
         with Not_found ->
@@ -965,21 +965,23 @@ let xml_sink ?(partial=false) () =
       if !after_root
       then raise (Error (`Element_after_root prov.Prov.loc));
       incr depth;
-      Xmlm.output out signal
+      push out signal
     | `El_end ->
       decr depth;
       if !depth = 0 then after_root := true;
-      Xmlm.output out `El_end
+      push out `El_end
   in
-  fun prov out s -> List.iter (output prov out) s; out
+  fun prov out s -> List.fold_left (output prov) out s
 
 let buffer_sink ?partial buffer =
   let ns_prefix = xmlns_map_default in
   let xml_out =
     Xmlm.make_output ~decl:false ~nl:true ~ns_prefix (`Buffer buffer)
   in
-  let sink = xml_sink ?partial () in
-  fun prov () s -> ignore (sink prov xml_out s)
+  let polyglot = ref (Polyglot.Stream.smart_doc_of_xml_output xml_out) in
+  let push stream signal = Polyglot.Stream.push_signals stream [signal] in
+  let sink = sink ?partial push in
+  fun prov () s -> polyglot := sink prov !polyglot s
 
 let bind_to_output ?partial out bindings rope =
   let buffer = Buffer.create 1024 in

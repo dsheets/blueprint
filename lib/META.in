@@ -1,6 +1,6 @@
 version = "%{blueprint:version}%"
 description = "Simple templating based on XML ropes"
-requires = "xmlm"
+requires = "xmlm polyglot"
 archive(byte) = "blueprint.cma"
 archive(byte, plugin) = "blueprint.cma"
 archive(native) = "blueprint.cmxa"

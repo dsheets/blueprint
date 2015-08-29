@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html>
   <body>
     <p><t:insert name="foo.bar">No foo.bar</t:insert></p>

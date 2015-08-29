@@ -1,6 +1,7 @@
 PKG cmdliner
 PKG xmlm
 PKG stringext
+PKG polyglot
 
 S lib
 S unix

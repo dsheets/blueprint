@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html>
   <t:insert name="missing"><t:seq/></t:insert>
 </html>

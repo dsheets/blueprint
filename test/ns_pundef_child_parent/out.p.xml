@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html>
   <body>
     <p>foo is <t:insert name="foo">missing</t:insert></p>

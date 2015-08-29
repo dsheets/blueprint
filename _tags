@@ -1,5 +1,5 @@
-<cli/*>: package(cmdliner),package(unix),package(xmlm),package(stringext)
-<lib/*>: package(xmlm),package(stringext)
+<cli/*>: package(cmdliner),package(unix),package(xmlm),package(stringext),package(polyglot)
+<lib/*>: package(xmlm),package(stringext),package(polyglot)
 <unix/*>: package(xmlm),package(stringext)
 true: debug, annot, bin_annot, principal, safe_string
 true: strict_sequence
