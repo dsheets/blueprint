@@ -141,5 +141,7 @@ module Tree : sig
   val of_cons : string -> t -> t
   val of_cons_string : string -> string -> t
 
+  val of_lazy_tree : (unit -> t) -> t
+
   val root : t -> t
 end

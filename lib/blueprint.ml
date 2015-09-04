@@ -1374,6 +1374,12 @@ module Tree = struct
 
   let of_cons_string name s = of_kv [ name, of_string s ]
 
+  let of_lazy_tree fn =
+    { (empty ()) with Scope.children = Lazy.from_fun (fun () ->
+        Lazy.force (fn ()).Scope.children
+      );
+    }
+
   (* This is sad. Is there a better way? *)
   let rec root scope =
     let { Scope.id; children } = scope in
